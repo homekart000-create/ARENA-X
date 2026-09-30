@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<meta name="theme-color" content="#10120f">
+	<title>Free Fire Tournaments | ARENA X</title>
+	<link rel="stylesheet" href="css/style.css">
+	<script src="js/auth.js" defer></script>
+	<script src="js/tournaments.js" defer></script>
+	<script src="js/teams.js" defer></script>
+	<script src="js/tournament-pages.js" defer></script>
+</head>
+<body class="tournament-page" data-page="tournaments">
+	<div class="announcement"><span class="live-pulse"></span> SEASON 08 IS LIVE <span class="announcement-divider">/</span> FIND YOUR NEXT DROP</div>
+	<header class="site-header"><div class="header-inner wrap">
+		<a class="brand" href="index.html" aria-label="ARENA X home"><span class="brand-mark" aria-hidden="true">A<span>X</span></span><span class="brand-word">ARENA<span>X</span></span></a>
+		<button class="menu-toggle" type="button" aria-label="Open navigation" aria-expanded="false" aria-controls="primary-nav"><span></span><span></span></button>
+		<nav class="primary-nav" id="primary-nav" aria-label="Main navigation"><a class="nav-link" href="index.html">Home</a><a class="nav-link is-current" href="tournaments.html">Tournaments</a><a class="nav-link" href="my-tournaments.html">My Tournaments</a><a class="nav-link" href="matches.html">Matches</a><a class="nav-link" href="leaderboard.html">Leaderboard</a><a class="nav-link" href="profile.html">Profile</a></nav>
+		<div class="header-auth" id="header-auth"><a class="button button-outline header-login" href="login.html">Log in</a><a class="header-signup" href="signup.html">Create account</a></div>
+	</div></header>
+	<main class="tournament-listing-main wrap">
+		<section class="listing-page-heading"><div><p class="eyebrow"><span class="eyebrow-line"></span> DEMO EVENTS / SEASON 08</p><h1>Free Fire <span>Tournaments</span></h1><p>Discover upcoming battles, compare prize pools, and join a tournament that fits your play style.</p></div><a class="text-link" href="my-tournaments.html">My Tournaments <span aria-hidden="true">↗</span></a></section>
+		<form class="tournament-filters" id="tournament-filters" role="search">
+			<label class="tournament-search-field" for="tournament-search"><span aria-hidden="true">⌕</span><input id="tournament-search" type="search" placeholder="Search tournaments, games, hosts" autocomplete="off"></label>
+			<div class="tournament-filter-row">
+				<label class="filter-select"><span>GAME</span><select id="filter-game"><option>All Games</option><option>Free Fire</option><option>BGMI</option><option>Valorant</option><option>Call of Duty Mobile</option></select></label>
+				<label class="filter-select"><span>STATUS</span><select id="filter-status"><option>All</option><option>Upcoming</option><option>Live</option><option>Completed</option></select></label>
+				<label class="filter-select"><span>TYPE</span><select id="filter-type"><option>All</option><option>Solo</option><option>Duo</option><option>Squad</option></select></label>
+				<label class="filter-select"><span>ENTRY</span><select id="filter-entry"><option>All</option><option>Free</option><option>Paid/Demo</option></select></label>
+				<label class="filter-select filter-sort"><span>SORT BY</span><select id="sort-tournaments"><option value="starting-soon">Starting Soon</option><option value="prize-pool">Prize Pool</option><option value="most-players">Most Players</option><option value="newest">Newest</option></select></label>
+			</div>
+		</form>
+		<div class="listing-results-heading"><p>ALL EVENTS <span class="listing-note" id="tournament-result-count">12 TOURNAMENTS</span></p><span class="demo-data-tag">SAMPLE DATA</span></div>
+		<div class="page-loading" id="tournament-loading"><span class="loading-spinner"></span> LOADING TOURNAMENTS</div>
+		<div class="tournament-grid listing-tournament-grid" id="tournament-grid" aria-live="polite" hidden></div>
+		<section class="tournament-empty-state" id="tournament-empty" hidden><span class="empty-mark">×</span><h2>No tournaments match those filters.</h2><p>Try another game, status, or search term.</p><button class="button button-outline" type="reset" form="tournament-filters">Clear filters</button></section>
+	</main>
+	<footer class="placeholder-footer"><div class="wrap"><span>© 2026 ARENA X</span><a href="index.html">Back to Home</a></div></footer>
+	<div class="toast-region" id="toast-region" role="status" aria-live="polite"></div>
+</body>
+</html>

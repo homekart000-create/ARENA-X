@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#10120f">
+  <title>Match Details | ARENA X</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script src="js/auth.js" defer></script>
+  <script src="js/tournaments.js" defer></script>
+  <script src="js/teams.js" defer></script>
+  <script src="js/matches.js" defer></script>
+  <script src="js/match-pages.js" defer></script>
+</head>
+<body class="tournament-page" data-page="match-detail">
+  <div class="announcement"><span class="live-pulse"></span> MATCH CENTER <span class="announcement-divider">/</span> SEASON 08</div>
+  <header class="site-header"><div class="header-inner wrap">
+    <a class="brand" href="index.html" aria-label="ARENA X home"><span class="brand-mark" aria-hidden="true">A<span>X</span></span><span class="brand-word">ARENA<span>X</span></span></a>
+    <button class="menu-toggle" type="button" aria-label="Open navigation" aria-expanded="false" aria-controls="primary-nav"><span></span><span></span></button>
+    <nav class="primary-nav" id="primary-nav" aria-label="Main navigation"><a class="nav-link" href="index.html">Home</a><a class="nav-link" href="tournaments.html">Tournaments</a><a class="nav-link is-current" href="matches.html">Matches</a><a class="nav-link" href="leaderboard.html">Leaderboard</a><a class="nav-link" href="profile.html">Profile</a></nav>
+    <div class="header-auth" id="header-auth"></div>
+  </div></header>
+  <main class="match-detail-main wrap">
+    <div class="page-loading" id="match-detail-loading"><span class="loading-spinner"></span> LOADING MATCH</div>
+    <section class="detail-not-found" id="match-not-found" hidden><p class="eyebrow"><span class="eyebrow-line"></span> MATCH NOT FOUND</p><h1>This fixture is <span>off the board.</span></h1><p>The match link may be invalid or the fixture is no longer available.</p><a class="button button-primary" href="matches.html">Browse matches <span aria-hidden="true">↗</span></a></section>
+    <div id="match-detail-content" hidden></div>
+  </main>
+  <footer class="placeholder-footer"><div class="wrap"><span>© 2026 ARENA X</span><a href="matches.html">All matches</a></div></footer>
+  <div class="toast-region" id="toast-region" role="status" aria-live="polite"></div>
+</body>
+</html>

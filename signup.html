@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#10120f">
+  <title>Create account | ARENA X</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script src="js/auth.js" defer></script>
+</head>
+<body class="auth-page">
+  <main class="auth-layout auth-layout-signup">
+    <aside class="auth-aside">
+      <a class="brand" href="index.html" aria-label="ARENA X home"><span class="brand-mark" aria-hidden="true">A<span>X</span></span><span class="brand-word">ARENA<span>X</span></span></a>
+      <div class="auth-aside-copy"><p class="eyebrow"><span class="eyebrow-line"></span> NEW PLAYER / 02</p><h1>YOUR STORY<br>STARTS <span>HERE.</span></h1><p>Build your profile, find your competition, and earn your place on the board.</p><div class="auth-aside-stat"><strong>ONE ACCOUNT</strong><span>EVERY MATCH IS A NEW CHAPTER</span></div></div>
+      <div class="auth-aside-bottom"><span>COMPETE. DOMINATE. WIN.</span><span>ARENA X <i>✳</i> EST. 2024</span></div>
+    </aside>
+    <section class="auth-main" aria-labelledby="signup-title">
+      <div class="auth-form-wrap auth-form-wrap-wide">
+        <div class="auth-form-heading"><p class="eyebrow"><span class="eyebrow-line"></span> CLAIM YOUR PLAYER ID</p><h2 id="signup-title">Create Your <span>Account</span></h2><p>Your next match starts with a name on the roster.</p></div>
+        <div class="auth-message" aria-live="polite"></div>
+        <form id="signup-form" class="auth-form signup-form" novalidate>
+          <div class="form-field form-field-wide"><label for="full-name">Full name</label><input id="full-name" name="fullName" type="text" autocomplete="name" placeholder="Your full name" aria-describedby="fullName-error"><span class="field-error" id="fullName-error" data-error-for="fullName"></span></div>
+          <div class="form-field"><label for="username">Username</label><input id="username" name="username" type="text" autocomplete="username" minlength="3" maxlength="20" placeholder="Choose a username" aria-describedby="username-error"><span class="field-error" id="username-error" data-error-for="username"></span></div>
+          <div class="form-field"><label for="email">Email</label><input id="email" name="email" type="email" autocomplete="email" placeholder="you@example.com" aria-describedby="email-error"><span class="field-error" id="email-error" data-error-for="email"></span></div>
+          <div class="form-field"><label for="phone">Mobile number</label><input id="phone" name="phone" type="tel" autocomplete="tel" inputmode="tel" placeholder="+91 98765 43210" aria-describedby="phone-error"><span class="field-error" id="phone-error" data-error-for="phone"></span></div>
+          <div class="form-field"><label for="date-of-birth">Date of birth</label><input id="date-of-birth" name="dateOfBirth" type="date" autocomplete="bday" aria-describedby="dateOfBirth-error"><span class="field-error" id="dateOfBirth-error" data-error-for="dateOfBirth"></span></div>
+          <div class="form-field"><label for="signup-password">Password</label><div class="password-control"><input id="signup-password" name="password" type="password" autocomplete="new-password" minlength="8" placeholder="At least 8 characters" aria-describedby="signup-password-error"><button class="password-toggle" type="button" data-password-toggle="signup-password" aria-label="Show password" aria-pressed="false">Show</button></div><span class="field-error" id="signup-password-error" data-error-for="password"></span></div>
+          <div class="form-field"><label for="confirm-password">Confirm password</label><div class="password-control"><input id="confirm-password" name="confirmPassword" type="password" autocomplete="new-password" placeholder="Enter password again" aria-describedby="confirmPassword-error"><button class="password-toggle" type="button" data-password-toggle="confirm-password" aria-label="Show password" aria-pressed="false">Show</button></div><span class="field-error" id="confirmPassword-error" data-error-for="confirmPassword"></span></div>
+          <div class="form-field form-field-wide terms-field"><label class="check-label"><input name="terms" type="checkbox" aria-describedby="terms-error"><span class="check-box" aria-hidden="true"></span><span>I agree to the <a href="mailto:support@arenax.gg?subject=Terms">Terms &amp; Conditions</a></span></label><span class="field-error" id="terms-error" data-error-for="terms"></span></div>
+          <button class="button button-primary auth-submit form-field-wide" type="submit"><span data-submit-label>Create account</span><span aria-hidden="true">↗</span></button>
+        </form>
+        <p class="auth-switch">Already have an account? <a href="login.html">Log in <span aria-hidden="true">↗</span></a></p>
+        <a class="back-home" href="index.html"><span aria-hidden="true">←</span> Back to Home</a>
+        <p class="auth-storage-note">Local-only demo. Passwords are stored as plain text in this browser; never reuse a real password.</p>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

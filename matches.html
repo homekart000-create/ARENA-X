@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<meta name="theme-color" content="#10120f">
+	<title>Match Center | ARENA X</title>
+	<link rel="stylesheet" href="css/style.css">
+	<script src="js/auth.js" defer></script>
+	<script src="js/tournaments.js" defer></script>
+	<script src="js/teams.js" defer></script>
+	<script src="js/matches.js" defer></script>
+	<script src="js/match-pages.js" defer></script>
+</head>
+<body class="tournament-page" data-page="matches">
+	<div class="announcement"><span class="live-pulse"></span> SEASON 08 IS LIVE <span class="announcement-divider">/</span> THE ARENA IS OPEN</div>
+	<header class="site-header">
+		<div class="header-inner wrap">
+			<a class="brand" href="index.html" aria-label="ARENA X home"><span class="brand-mark" aria-hidden="true">A<span>X</span></span><span class="brand-word">ARENA<span>X</span></span></a>
+			<button class="menu-toggle" type="button" aria-label="Open navigation" aria-expanded="false" aria-controls="primary-nav"><span></span><span></span></button>
+			<nav class="primary-nav" id="primary-nav" aria-label="Main navigation">
+				<a class="nav-link" href="index.html">Home</a>
+				<a class="nav-link" href="tournaments.html">Tournaments</a>
+				<a class="nav-link is-current" href="matches.html">Matches</a>
+				<a class="nav-link" href="leaderboard.html">Leaderboard</a>
+				<a class="nav-link" href="profile.html">Profile</a>
+			</nav>
+			<div class="header-auth" id="header-auth"></div>
+		</div>
+	</header>
+	<main class="match-center-main wrap">
+		<section class="match-center-heading" aria-labelledby="match-center-title">
+			<div>
+				<p class="eyebrow"><span class="eyebrow-line"></span> LIVE &amp; UPCOMING / SEASON 08</p>
+				<h1 id="match-center-title">Match <span>center.</span></h1>
+				<p>Track your tournament fixtures from one board.</p>
+			</div>
+			<a class="text-link" href="index.html#matches">Home match board <span aria-hidden="true">↗</span></a>
+		</section>
+		<section class="match-center-toolbar" aria-label="Find matches">
+			<div class="match-filter-tabs" role="group" aria-label="Filter matches">
+				<button type="button" data-match-filter="upcoming" class="is-active" aria-pressed="true">Upcoming</button>
+				<button type="button" data-match-filter="live" aria-pressed="false"><span class="live-pulse"></span> Live</button>
+				<button type="button" data-match-filter="completed" aria-pressed="false">Completed</button>
+				<button type="button" data-match-filter="cancelled" aria-pressed="false">Cancelled</button>
+				<button type="button" data-match-filter="all" aria-pressed="false">All</button>
+				<button type="button" data-match-filter="my" aria-pressed="false">My Tournaments</button>
+			</div>
+			<label class="match-search" for="match-search"><span aria-hidden="true">⌕</span><input id="match-search" type="search" placeholder="Search event or tournament" autocomplete="off"></label>
+		</section>
+		<div class="match-results-heading"><p>FIXTURES <span id="match-result-count">00 MATCHES</span></p><span class="demo-data-tag">LOCAL SAMPLE DATA</span></div>
+		<div class="match-record-grid" id="match-grid" aria-live="polite"></div>
+		<section class="tournament-empty-state" id="match-empty" hidden><span class="empty-mark">×</span><h2>No upcoming matches</h2><p>Check another match category or search term.</p></section>
+		<section class="match-organizer-panel" id="match-organizer" hidden>
+			<div class="team-section-heading"><div><p class="eyebrow"><span class="eyebrow-line"></span> DEMO ORGANIZER / LOCAL STORAGE</p><h2>Create a <span>match.</span></h2></div></div>
+			<form class="match-editor-form" id="match-create-form">
+				<label class="match-editor-wide">Tournament<select id="new-match-tournament" name="tournamentId" required><option value="">Select a tournament</option></select></label>
+				<label>Match number<input name="matchNumber" type="number" min="1" step="1" required></label><label>Match title<input name="title" type="text" maxlength="80" required></label>
+				<label>Game<input name="game" type="text" maxlength="60" required></label><label>Mode<input name="mode" type="text" maxlength="80" required></label>
+				<label>Date<input name="date" type="date" required></label><label>Start time<input name="startTime" type="text" placeholder="7:30 PM IST" maxlength="40" required></label>
+				<label>Map<input name="map" type="text" maxlength="60"></label><label>Maximum players / teams<input name="maxPlayers" type="number" min="1" step="1" value="48" required></label>
+				<label>Room ID<input name="roomId" type="text" maxlength="80"></label><label>Room password<input name="roomPassword" type="password" maxlength="80" autocomplete="new-password"></label>
+				<label class="match-editor-wide">Instructions<textarea name="instructions" maxlength="1000" rows="3"></textarea></label>
+				<div class="match-editor-wide"><button class="button button-primary" type="submit">Create Match <span aria-hidden="true">↗</span></button></div>
+			</form>
+			<p class="match-demo-note">Only the existing demo account can manage sample matches. Browser storage is not production authorization.</p>
+		</section>
+	</main>
+	<footer class="placeholder-footer"><div class="wrap"><span>© 2026 ARENA X</span><a href="index.html">Back to Home</a></div></footer>
+</body>
+</html>

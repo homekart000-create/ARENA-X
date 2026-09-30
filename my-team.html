@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#10120f">
+  <title>My Team | ARENA X</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script src="js/auth.js" defer></script>
+  <script src="js/tournaments.js" defer></script>
+  <script src="js/teams.js" defer></script>
+  <script src="js/team-pages.js" defer></script>
+</head>
+<body class="team-page" data-page="my-team" data-protected="true">
+  <div class="announcement"><span class="live-pulse"></span> PLAYER HUB <span class="announcement-divider">/</span> MY TEAM</div>
+  <header class="site-header"><div class="header-inner wrap">
+    <a class="brand" href="index.html" aria-label="ARENA X home"><span class="brand-mark" aria-hidden="true">A<span>X</span></span><span class="brand-word">ARENA<span>X</span></span></a>
+    <button class="menu-toggle" type="button" aria-label="Open navigation" aria-expanded="false" aria-controls="primary-nav"><span></span><span></span></button>
+    <nav class="primary-nav" id="primary-nav" aria-label="Main navigation"><a class="nav-link" href="index.html">Home</a><a class="nav-link" href="tournaments.html">Tournaments</a><a class="nav-link" href="my-tournaments.html">My Tournaments</a><a class="nav-link is-current" href="my-team.html">My Team</a><a class="nav-link" href="matches.html">Matches</a><a class="nav-link" href="leaderboard.html">Leaderboard</a><a class="nav-link" href="profile.html">Profile</a></nav>
+    <div class="header-auth" id="header-auth"></div>
+  </div></header>
+  <main class="team-page-main wrap">
+    <div class="team-page-heading"><div><p class="eyebrow"><span class="eyebrow-line"></span> PLAYER HUB / TEAM HQ</p><h1>My <span>team.</span></h1><p>Your roster and tournament-ready lineup.</p></div><a class="button button-outline" href="tournaments.html">Explore tournaments <span aria-hidden="true">↗</span></a></div>
+    <div class="team-page-loading page-loading" id="team-loading"><span class="loading-spinner"></span> LOADING TEAM</div>
+    <section class="team-empty-state tournament-empty-state" id="team-empty" hidden><span class="empty-mark">AX</span><h2>No Team Yet</h2><p>Create a team to compete in Duo and Squad tournaments.</p><button class="button button-primary" type="button" data-team-action="create">Create Team <span aria-hidden="true">↗</span></button></section>
+    <section class="team-dashboard" id="team-dashboard" hidden aria-live="polite"></section>
+    <section class="team-invitations-section" id="team-invitations"><div class="team-section-heading"><div><p class="eyebrow"><span class="eyebrow-line"></span> ROSTER REQUESTS</p><h2>Team <span>Invitations</span></h2></div></div><div class="team-invitations-list" id="team-invitations-list"></div></section>
+  </main>
+  <footer class="placeholder-footer"><div class="wrap"><span>© 2026 ARENA X</span><a href="index.html">Back to Home</a></div></footer>
+  <div class="toast-region" id="toast-region" role="status" aria-live="polite"></div>
+</body>
+</html>

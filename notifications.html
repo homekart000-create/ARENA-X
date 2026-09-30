@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#10120f">
+  <title>Notifications | ARENA X</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script src="js/auth.js" defer></script>
+  <script src="js/tournaments.js" defer></script>
+  <script src="js/teams.js" defer></script>
+  <script src="js/matches.js" defer></script>
+  <script src="js/leaderboard.js" defer></script>
+  <script src="js/notifications.js" defer></script>
+</head>
+<body class="tournament-page" data-page="notifications" data-protected="true">
+  <div class="announcement"><span class="live-pulse"></span> PLAYER HUB <span class="announcement-divider">/</span> NOTIFICATIONS</div>
+  <header class="site-header"><div class="header-inner wrap">
+    <a class="brand" href="index.html" aria-label="ARENA X home"><span class="brand-mark" aria-hidden="true">A<span>X</span></span><span class="brand-word">ARENA<span>X</span></span></a>
+    <button class="menu-toggle" type="button" aria-label="Open navigation" aria-expanded="false" aria-controls="primary-nav"><span></span><span></span></button>
+    <nav class="primary-nav" id="primary-nav" aria-label="Main navigation"><a class="nav-link" href="index.html">Home</a><a class="nav-link" href="tournaments.html">Tournaments</a><a class="nav-link" href="matches.html">Matches</a><a class="nav-link" href="leaderboard.html">Leaderboard</a><a class="nav-link" href="profile.html">Profile</a></nav>
+    <div class="header-auth" id="header-auth"></div>
+  </div></header>
+  <main class="notifications-main wrap">
+    <section class="notifications-heading"><div><p class="eyebrow"><span class="eyebrow-line"></span> PLAYER HUB / INBOX</p><h1>Your <span>notifications.</span></h1><p>Updates from your tournaments, team, and matches.</p></div><a class="text-link" href="profile.html">Back to dashboard <span aria-hidden="true">↗</span></a></section>
+    <section class="notifications-toolbar" aria-label="Notification filters">
+      <div class="notification-filter-tabs" role="group" aria-label="Filter notifications">
+        <button type="button" class="is-active" data-notification-filter="all" aria-pressed="true">All</button>
+        <button type="button" data-notification-filter="unread" aria-pressed="false">Unread</button>
+      </div>
+      <span class="notification-total" id="notifications-count">0 TOTAL</span>
+      <button class="button button-outline" type="button" id="notifications-mark-all">Mark all as read</button>
+    </section>
+    <div class="notifications-list" id="notifications-list" aria-live="polite"></div>
+    <section class="tournament-empty-state notifications-empty" data-notifications-empty hidden><span class="empty-mark">AX</span><h2>Your inbox is clear.</h2><p>No notifications.</p></section>
+  </main>
+  <footer class="placeholder-footer"><div class="wrap"><span>© 2026 ARENA X</span><a href="profile.html">Back to Profile</a></div></footer>
+</body>
+</html>

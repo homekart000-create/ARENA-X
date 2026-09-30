@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#10120f">
+  <title>My Tournaments | ARENA X</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script src="js/auth.js" defer></script>
+  <script src="js/tournaments.js" defer></script>
+  <script src="js/tournament-pages.js" defer></script>
+</head>
+<body class="tournament-page" data-page="my-tournaments" data-protected="true">
+  <div class="announcement"><span class="live-pulse"></span> PLAYER HUB <span class="announcement-divider">/</span> YOUR BATTLES</div>
+  <header class="site-header"><div class="header-inner wrap">
+    <a class="brand" href="index.html" aria-label="ARENA X home"><span class="brand-mark" aria-hidden="true">A<span>X</span></span><span class="brand-word">ARENA<span>X</span></span></a>
+    <button class="menu-toggle" type="button" aria-label="Open navigation" aria-expanded="false" aria-controls="primary-nav"><span></span><span></span></button>
+    <nav class="primary-nav" id="primary-nav" aria-label="Main navigation"><a class="nav-link" href="index.html">Home</a><a class="nav-link" href="tournaments.html">Tournaments</a><a class="nav-link is-current" href="my-tournaments.html">My Tournaments</a><a class="nav-link" href="matches.html">Matches</a><a class="nav-link" href="leaderboard.html">Leaderboard</a><a class="nav-link" href="profile.html">Profile</a></nav>
+    <div class="header-auth" id="header-auth"></div>
+  </div></header>
+  <main class="my-tournaments-main wrap">
+    <div class="my-tournaments-heading"><div><p class="eyebrow"><span class="eyebrow-line"></span> PLAYER HUB / SEASON 08</p><h1>My <span>tournaments.</span></h1><p>Your registered battles, all in one place.</p><p class="my-cancellation-note">Registration cancellation is currently unavailable.</p></div><a class="button button-outline" href="tournaments.html">Explore events <span aria-hidden="true">↗</span></a></div>
+    <div class="my-tournament-tabs" role="tablist" aria-label="Filter my tournaments">
+      <button type="button" role="tab" data-my-tab="All" aria-selected="true" class="is-active">All</button>
+      <button type="button" role="tab" data-my-tab="Upcoming" aria-selected="false">Upcoming</button>
+      <button type="button" role="tab" data-my-tab="Live" aria-selected="false">Live</button>
+      <button type="button" role="tab" data-my-tab="Completed" aria-selected="false">Completed</button>
+    </div>
+    <div class="my-tournament-loading page-loading" id="my-tournament-loading"><span class="loading-spinner"></span> LOADING YOUR EVENTS</div>
+    <section class="tournament-empty-state" id="my-tournament-empty" hidden><span class="empty-mark">01</span><h2>No Tournaments Yet</h2><p>Join your first Free Fire tournament and start competing.</p><a class="button button-primary" href="tournaments.html">Explore Tournaments <span aria-hidden="true">↗</span></a></section>
+    <section class="tournament-empty-state my-filter-empty" id="my-filter-empty" hidden><span class="empty-mark">×</span><h2>No tournaments in this category.</h2><p>Your other registrations are still available in All.</p></section>
+    <div class="my-tournament-groups" id="my-tournament-groups" hidden>
+      <section class="my-tournament-group" data-category="Upcoming"><div class="my-group-heading"><h2>Upcoming</h2><span data-category-count="Upcoming">00 EVENTS</span></div><div class="tournament-grid" data-category-list="Upcoming"></div></section>
+      <section class="my-tournament-group" data-category="Live"><div class="my-group-heading"><h2>Live</h2><span data-category-count="Live">00 EVENTS</span></div><div class="tournament-grid" data-category-list="Live"></div></section>
+      <section class="my-tournament-group" data-category="Completed"><div class="my-group-heading"><h2>Completed</h2><span data-category-count="Completed">00 EVENTS</span></div><div class="tournament-grid" data-category-list="Completed"></div></section>
+    </div>
+  </main>
+  <footer class="placeholder-footer"><div class="wrap"><span>© 2026 ARENA X</span><a href="index.html">Back to Home</a></div></footer>
+  <div class="toast-region" id="toast-region" role="status" aria-live="polite"></div>
+</body>
+</html>

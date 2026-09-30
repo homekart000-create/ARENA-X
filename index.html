@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#10120f">
+  <meta name="description" content="Compete in Free Fire tournaments, follow live matches, and climb the ARENA X leaderboard.">
+  <title>ARENA X | Compete. Dominate. Win.</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script src="js/auth.js" defer></script>
+  <script src="js/tournaments.js" defer></script>
+  <script src="js/teams.js" defer></script>
+  <script src="js/matches.js" defer></script>
+  <script src="js/tournament-pages.js" defer></script>
+  <script src="js/app.js" defer></script>
+</head>
+<body data-page="home">
+  <div class="announcement"><span class="live-pulse"></span> SEASON 08 IS LIVE <span class="announcement-divider">/</span> <a href="tournaments.html">FIND YOUR NEXT DROP <span aria-hidden="true">↗</span></a></div>
+  <header class="site-header">
+    <div class="header-inner wrap">
+      <a class="brand" href="index.html" aria-label="ARENA X home"><span class="brand-mark" aria-hidden="true">A<span>X</span></span><span class="brand-word">ARENA<span>X</span></span></a>
+      <button class="menu-toggle" type="button" aria-label="Open navigation" aria-expanded="false" aria-controls="primary-nav"><span></span><span></span></button>
+      <nav class="primary-nav" id="primary-nav" aria-label="Main navigation">
+        <a class="nav-link is-current" href="index.html">Home</a>
+        <a class="nav-link" href="tournaments.html">Tournaments</a>
+        <a class="nav-link" href="my-tournaments.html">My Tournaments</a>
+        <a class="nav-link" href="matches.html">Matches</a>
+        <a class="nav-link" href="leaderboard.html">Leaderboard</a>
+        <a class="nav-link" href="profile.html">Profile</a>
+      </nav>
+      <div class="header-auth" id="header-auth"><a class="button button-outline header-login" href="login.html">Log in</a><a class="header-signup" href="signup.html">Create account</a></div>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero" id="home" aria-labelledby="hero-title">
+      <div class="hero-image" role="img" aria-label="Esports arena illuminated by stage lights"></div>
+      <div class="hero-scrim"></div>
+      <div class="hero-grid wrap">
+        <div class="hero-copy">
+          <p class="eyebrow"><span class="eyebrow-line"></span> THE NEXT DROP STARTS HERE</p>
+          <h1 id="hero-title">COMPETE.<br><span>DOMINATE.</span><br>WIN.</h1>
+          <p class="hero-description">Your squad. Your moment. Enter the arena and turn every match into a statement.</p>
+          <div class="hero-actions">
+            <a class="button button-primary" href="tournaments.html">Explore tournaments <span aria-hidden="true">↘</span></a>
+            <a class="button button-quiet" href="tournaments.html"><span class="play-icon" aria-hidden="true">▶</span> Join a tournament</a>
+          </div>
+          <div class="hero-proof"><div class="proof-avatars" aria-hidden="true"><span>R</span><span>K</span><span>M</span><span>+</span></div><p><strong>12,480+</strong><br>players already competing</p></div>
+        </div>
+        <div class="hero-side" aria-label="Featured Free Fire tournament">
+          <div class="hero-side-top"><span class="status-pill status-open"><span></span> REGISTRATION OPEN</span><span class="hero-code">AX / 08</span></div>
+          <div class="hero-feature-label">THIS WEEK'S FEATURE</div>
+          <h2><em id="hero-tournament-name">Featured Tournament</em></h2>
+          <div class="hero-feature-meta"><div><small>PRIZE POOL</small><strong id="hero-tournament-prize">—</strong></div><div><small>STARTS</small><strong id="hero-tournament-start">—</strong></div></div>
+          <a href="tournaments.html" class="hero-side-link" id="hero-tournament-link">See tournament details <span aria-hidden="true">↗</span></a>
+          <span class="hero-side-number" aria-hidden="true">01</span>
+        </div>
+      </div>
+      <div class="hero-bottom wrap"><span>FREE FIRE COMMUNITY TOURNAMENTS</span><span>EST. 2024 <i></i> PLAY WITH PURPOSE</span></div>
+    </section>
+
+    <section class="ticker" aria-label="Arena highlights"><div class="ticker-track"><span>PLAY BOLD</span><b>✳</b><span>PLAY BOLD</span><b>✳</b><span>MAKE YOUR DROP COUNT</span><b>✳</b><span>PLAY BOLD</span><b>✳</b><span>PLAY BOLD</span><b>✳</b><span>MAKE YOUR DROP COUNT</span><b>✳</b></div></section>
+
+    <section class="section tournaments-section wrap" id="tournaments" aria-labelledby="tournaments-title">
+      <div class="section-heading">
+        <div><p class="eyebrow"><span class="eyebrow-line"></span> PICK YOUR BATTLEGROUND</p><h2 id="tournaments-title">Featured <span>tournaments</span></h2></div>
+        <a class="text-link" href="tournaments.html">Browse all events <span aria-hidden="true">↗</span></a>
+      </div>
+      <div class="tournament-toolbar"><div class="game-filter" role="group" aria-label="Filter tournaments by game"><button class="filter-chip is-active" type="button" data-filter="Free Fire" aria-pressed="true"><span class="game-dot fire"></span> Free Fire <span class="filter-count">06</span></button><button class="filter-chip" type="button" data-filter="BGMI" aria-pressed="false"><span class="game-dot bgmi"></span> BGMI</button><button class="filter-chip" type="button" data-filter="Valorant" aria-pressed="false"><span class="game-dot valorant"></span> Valorant</button><button class="filter-chip" type="button" data-filter="Call of Duty Mobile" aria-pressed="false">COD Mobile</button></div><span class="listing-note"><span class="live-pulse"></span> 6 EVENTS LISTED</span></div>
+      <div class="tournament-grid" id="tournament-grid" aria-live="polite"></div>
+      <div class="empty-state" id="tournament-empty" hidden><span class="empty-mark">×</span><p>Nothing on the board for this game just yet.</p><span>Check back for upcoming events.</span></div>
+    </section>
+
+    <section class="games-band" id="games" aria-labelledby="games-title"><div class="wrap games-layout"><div class="games-intro"><p class="eyebrow"><span class="eyebrow-line"></span> CHOOSE YOUR GAME</p><h2 id="games-title">One arena.<br><span>Many worlds.</span></h2><p>Find your scene, build your squad, make your mark.</p></div><div class="game-list">
+      <button class="game-tile game-fire is-featured" type="button" data-game="Free Fire"><span class="game-index">01 / MOBILE</span><span class="game-name">FREE<br>FIRE</span><span class="game-arrow" aria-hidden="true">↗</span><span class="game-tile-bottom">BATTLE ROYALE <span>SELECTED</span></span></button>
+      <button class="game-tile game-bgmi" type="button" data-game="BGMI"><span class="game-index">02 / MOBILE</span><span class="game-name">BGMI</span><span class="game-arrow" aria-hidden="true">↗</span><span class="game-tile-bottom">BATTLE ROYALE <span>EXPLORE</span></span></button>
+      <button class="game-tile game-valorant" type="button" data-game="Valorant"><span class="game-index">03 / PC</span><span class="game-name">VALORANT</span><span class="game-arrow" aria-hidden="true">↗</span><span class="game-tile-bottom">TACTICAL FPS <span>EXPLORE</span></span></button>
+      <button class="game-tile game-cod" type="button" data-game="Call of Duty Mobile"><span class="game-index">04 / MOBILE</span><span class="game-name">CALL OF<br>DUTY MOBILE</span><span class="game-arrow" aria-hidden="true">↗</span><span class="game-tile-bottom">ACTION FPS <span>EXPLORE</span></span></button>
+    </div></div></section>
+
+    <section class="section matches-section wrap" id="matches" aria-labelledby="matches-title"><div class="section-heading"><div><p class="eyebrow"><span class="eyebrow-line"></span> ON THE BATTLEFIELD</p><h2 id="matches-title">Live <span>& upcoming</span></h2></div><a class="text-link" href="#matches">Match center <span aria-hidden="true">↗</span></a></div><div class="match-grid" id="match-grid"></div></section>
+
+    <section class="leaderboard-band" id="leaderboard" aria-labelledby="leaderboard-title"><div class="wrap leaderboard-layout"><div class="leaderboard-intro"><p class="eyebrow"><span class="eyebrow-line"></span> THE ONES TO WATCH</p><h2 id="leaderboard-title">Top of<br>the <span>stack.</span></h2><p>Every point earned. Every spot deserved.</p><a class="text-link" href="#leaderboard">Full leaderboard <span aria-hidden="true">↗</span></a><div class="leaderboard-season">SEASON 08 <span>•</span> WEEK 04</div></div><div class="leaderboard-table" id="leaderboard-table" role="list" aria-label="Top players"></div></div></section>
+
+    <section class="stats-section wrap" aria-label="ARENA X in numbers"><div class="stats-heading"><p class="eyebrow"><span class="eyebrow-line"></span> BUILT FOR THE CLIMB</p><span>THE ARENA IS GROWING</span></div><div class="stats-grid"><div class="stat-item"><strong data-stat="players">12,480</strong><span>TOTAL PLAYERS</span><i>01</i></div><div class="stat-item"><strong data-stat="tournaments">248</strong><span>TOURNAMENTS</span><i>02</i></div><div class="stat-item"><strong data-stat="matches">1,936</strong><span>MATCHES PLAYED</span><i>03</i></div><div class="stat-item"><strong data-stat="prize">₹18.6L</strong><span>PRIZE POOL PAID</span><i>04</i></div></div></section>
+  </main>
+
+  <footer class="site-footer"><div class="wrap footer-main"><div class="footer-brand"><a class="brand" href="#home" aria-label="ARENA X home"><span class="brand-mark" aria-hidden="true">A<span>X</span></span><span class="brand-word">ARENA<span>X</span></span></a><p>Compete. Dominate. Win.</p></div><div class="footer-links"><div><span class="footer-label">THE ARENA</span><a href="#home">About</a><a href="tournaments.html">Tournaments</a><a href="my-tournaments.html">My Tournaments</a><a href="#matches">Matches</a></div><div><span class="footer-label">NEED A HAND?</span><a href="mailto:support@arenax.gg">Support</a><a href="mailto:hello@arenax.gg">Contact</a><a href="mailto:support@arenax.gg?subject=Terms">Terms</a><a href="mailto:support@arenax.gg?subject=Privacy">Privacy</a></div></div><a class="back-top" href="#home" aria-label="Back to top">↑</a></div><div class="wrap footer-bottom"><span>© 2026 ARENA X. ALL RIGHTS RESERVED.</span><span>BUILT FOR THE NEXT GENERATION OF COMPETITION <b>✳</b></span></div></footer>
+
+  <div class="toast-region" id="toast-region" role="status" aria-live="polite"></div>
+</body>
+</html>

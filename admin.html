@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#10120f">
+  <title>Admin Panel | ARENA X</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script src="js/auth.js" defer></script>
+  <script src="js/tournaments.js" defer></script>
+  <script src="js/teams.js" defer></script>
+  <script src="js/matches.js" defer></script>
+  <script src="js/wallet.js" defer></script>
+  <script src="js/admin.js" defer></script>
+  <script src="js/admin-pages.js" defer></script>
+</head>
+<body class="admin-page" data-page="admin">
+  <div class="announcement"><span class="live-pulse"></span> ARENA X <span class="announcement-divider">/</span> LOCAL DEMO ADMIN</div>
+  <header class="site-header"><div class="header-inner wrap">
+    <a class="brand" href="index.html" aria-label="ARENA X home"><span class="brand-mark" aria-hidden="true">A<span>X</span></span><span class="brand-word">ARENA<span>X</span></span></a>
+    <button class="menu-toggle" type="button" aria-label="Open navigation" aria-expanded="false" aria-controls="primary-nav"><span></span><span></span></button>
+    <nav class="primary-nav" id="primary-nav" aria-label="Main navigation"><a class="nav-link" href="index.html">Home</a><a class="nav-link" href="tournaments.html">Tournaments</a><a class="nav-link" href="matches.html">Matches</a><a class="nav-link" href="leaderboard.html">Leaderboard</a><a class="nav-link" href="profile.html">Profile</a><a class="nav-link is-current" href="admin.html">Admin</a></nav>
+    <div class="header-auth" id="header-auth"></div>
+  </div></header>
+  <main class="admin-main wrap" id="admin-app" hidden>
+    <section class="admin-heading"><div><p class="eyebrow"><span class="eyebrow-line"></span> OPERATIONS / DEMO ACCESS</p><h1>Admin <span>panel.</span></h1><p>Local browser data overview and reversible demo controls.</p></div><span class="admin-local-badge">LOCAL ONLY · NOT PRODUCTION SECURITY</span></section>
+    <p class="admin-message" id="admin-message" role="status" aria-live="polite" hidden></p>
+    <div class="admin-layout">
+      <aside class="admin-sidebar" aria-label="Admin sections"><span>CONTROL ROOM</span><a href="#admin-overview">Overview</a><a href="#admin-users">Users</a><a href="#admin-tournaments">Tournaments</a><a href="#admin-teams">Teams</a><a href="#admin-matches">Matches</a><a href="#admin-transactions">Transactions</a><a href="#admin-audit">Admin activity</a></aside>
+      <div class="admin-content">
+        <section class="admin-section" id="admin-overview"><div class="admin-section-heading"><div><p class="eyebrow"><span class="eyebrow-line"></span> STORES / LIVE COUNTS</p><h2>Overview <span>board.</span></h2></div></div>
+          <div class="admin-stat-grid">
+            <article><span>TOTAL USERS</span><strong data-admin-stat="totalUsers">0</strong></article><article><span>TOURNAMENTS</span><strong data-admin-stat="totalTournaments">0</strong></article><article><span>TEAMS</span><strong data-admin-stat="totalTeams">0</strong></article><article><span>MATCHES</span><strong data-admin-stat="totalMatches">0</strong></article><article><span>WALLET TRANSACTIONS</span><strong data-admin-stat="totalWalletTransactions">0</strong></article><article><span>WALLET BALANCE</span><strong data-admin-stat="totalWalletBalance">₹0.00</strong></article><article><span>ACTIVE / UPCOMING EVENTS</span><strong data-admin-stat="activeTournaments">0</strong></article><article><span>LIVE MATCHES</span><strong data-admin-stat="liveMatches">0</strong></article><article><span>COMPLETED MATCHES</span><strong data-admin-stat="completedMatches">0</strong></article>
+          </div>
+        </section>
+        <section class="admin-section" id="admin-users"><div class="admin-section-heading"><div><p class="eyebrow"><span class="eyebrow-line"></span> ACCOUNT DIRECTORY</p><h2>User <span>management.</span></h2></div><span id="admin-users-count" class="admin-section-count">0 USERS</span></div>
+          <div class="admin-filter-bar"><label class="admin-search"><span aria-hidden="true">⌕</span><input id="admin-user-search" type="search" placeholder="Search username, name, email" autocomplete="off"></label><label><span>ROLE</span><select id="admin-user-role"><option value="all">All Roles</option><option value="admin">Admin</option><option value="user">User</option></select></label><label><span>STATUS</span><select id="admin-user-status"><option value="all">All Statuses</option><option value="active">Active</option><option value="suspended">Suspended</option></select></label></div>
+          <div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>User</th><th>Email</th><th>Role</th><th>Status</th><th>Created</th><th>Action</th></tr></thead><tbody id="admin-users-body"></tbody></table><p class="admin-empty" id="admin-users-empty" hidden>No users match these filters.</p></div>
+        </section>
+        <section class="admin-section" id="admin-tournaments"><div class="admin-section-heading"><div><p class="eyebrow"><span class="eyebrow-line"></span> EVENT CONTROL</p><h2>Tournament <span>management.</span></h2></div><span id="admin-tournaments-count" class="admin-section-count">0 TOURNAMENTS</span></div>
+          <div class="admin-filter-bar"><label class="admin-search"><span aria-hidden="true">⌕</span><input id="admin-tournament-search" type="search" placeholder="Search tournament or host" autocomplete="off"></label><label><span>GAME</span><select id="admin-tournament-game"><option value="all">All Games</option></select></label><label><span>STATUS</span><select id="admin-tournament-status"><option value="all">All Statuses</option><option value="Upcoming">Upcoming</option><option value="Live">Live</option><option value="Completed">Completed</option></select></label></div>
+          <div class="admin-table-wrap"><table class="admin-table admin-wide-table"><thead><tr><th>Tournament</th><th>Game</th><th>Entry</th><th>Prize</th><th>Participants</th><th>Start</th><th>Status / Details</th></tr></thead><tbody id="admin-tournaments-body"></tbody></table><p class="admin-empty" id="admin-tournaments-empty" hidden>No tournaments match these filters.</p></div>
+        </section>
+        <section class="admin-section" id="admin-teams"><div class="admin-section-heading"><div><p class="eyebrow"><span class="eyebrow-line"></span> ROSTER DIRECTORY</p><h2>Team <span>management.</span></h2></div><span id="admin-teams-count" class="admin-section-count">0 TEAMS</span></div>
+          <div class="admin-filter-bar"><label class="admin-search"><span aria-hidden="true">⌕</span><input id="admin-team-search" type="search" placeholder="Search team, tag, captain, member" autocomplete="off"></label></div>
+          <div class="admin-table-wrap"><table class="admin-table admin-wide-table"><thead><tr><th>Team</th><th>Captain</th><th>Members</th><th>Stats</th><th>Created</th><th>View</th></tr></thead><tbody id="admin-teams-body"></tbody></table><p class="admin-empty" id="admin-teams-empty" hidden>No teams match this search.</p></div>
+        </section>
+        <section class="admin-section" id="admin-matches"><div class="admin-section-heading"><div><p class="eyebrow"><span class="eyebrow-line"></span> FIXTURE CONTROL</p><h2>Match <span>management.</span></h2></div><span id="admin-matches-count" class="admin-section-count">0 MATCHES</span></div>
+          <div class="admin-filter-bar"><label class="admin-search"><span aria-hidden="true">⌕</span><input id="admin-match-search" type="search" placeholder="Search match or tournament" autocomplete="off"></label><label><span>STATUS</span><select id="admin-match-status"><option value="all">All Statuses</option><option value="upcoming">Upcoming</option><option value="live">Live</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option></select></label></div>
+          <div class="admin-table-wrap"><table class="admin-table admin-wide-table"><thead><tr><th>Match / Tournament</th><th>Game / Mode</th><th>Schedule</th><th>Participants</th><th>Room visibility</th><th>Update / View</th></tr></thead><tbody id="admin-matches-body"></tbody></table><p class="admin-empty" id="admin-matches-empty" hidden>No matches match these filters.</p></div>
+        </section>
+        <section class="admin-section" id="admin-transactions"><div class="admin-section-heading"><div><p class="eyebrow"><span class="eyebrow-line"></span> WALLET / READ ONLY</p><h2>Transactions <span>ledger.</span></h2></div><span id="admin-transactions-count" class="admin-section-count">0 TRANSACTIONS</span></div>
+          <div class="admin-filter-bar"><label class="admin-search"><span aria-hidden="true">⌕</span><input id="admin-transaction-search" type="search" placeholder="Search transaction, user, reference" autocomplete="off"></label><label><span>TYPE</span><select id="admin-transaction-type"><option value="all">All Types</option><option value="deposit">Deposit</option><option value="withdrawal">Withdrawal</option><option value="entry_fee">Entry Fee</option><option value="winning">Winning</option><option value="refund">Refund</option><option value="adjustment">Adjustment</option></select></label><label><span>STATUS</span><select id="admin-transaction-status"><option value="all">All Statuses</option><option value="completed">Completed</option><option value="pending">Pending</option><option value="failed">Failed</option></select></label><label><span>USER</span><select id="admin-transaction-user"><option value="all">All Users</option></select></label></div>
+          <div class="admin-table-wrap"><table class="admin-table admin-wide-table"><thead><tr><th>Transaction / User</th><th>Type</th><th>Amount</th><th>Status</th><th>Description</th><th>Reference</th><th>Created</th></tr></thead><tbody id="admin-transactions-body"></tbody></table><p class="admin-empty" id="admin-transactions-empty" hidden>No wallet transactions match these filters.</p></div>
+        </section>
+        <section class="admin-section" id="admin-audit"><div class="admin-section-heading"><div><p class="eyebrow"><span class="eyebrow-line"></span> LOCAL AUDIT / REVERSIBLE ACTIONS</p><h2>Admin <span>activity.</span></h2></div></div><div class="admin-audit-list" id="admin-audit-list"></div><p class="admin-empty" id="admin-audit-empty" hidden>No admin actions recorded.</p></section>
+      </div>
+    </div>
+  </main>
+  <footer class="placeholder-footer"><div class="wrap"><span>© 2026 ARENA X</span><a href="index.html">Back to Home</a></div></footer>
+  <div class="toast-region" id="toast-region" role="status" aria-live="polite"></div>
+</body>
+</html>
