@@ -1254,6 +1254,9 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--acid); outline-
   .wallet-transaction-status { grid-column: 2 / -1; justify-self: start; margin-top: -3px; }
   .wallet-filter-tabs { margin-inline: -2px; }
 }
+@media (max-width: 480px) {
+  .match-filter-tabs { flex-wrap: wrap; overflow: visible; }
+}
 .admin-page { min-height: 100vh; }
 .admin-main { min-height: calc(100vh - 194px); padding-block: 46px 74px; }
 .admin-main[hidden] { display: none; }
