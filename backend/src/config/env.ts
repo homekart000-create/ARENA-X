@@ -10,6 +10,7 @@ export interface AppConfig {
   readonly corsOrigins: readonly string[];
   readonly authCookieName: string;
   readonly sessionTtlSeconds: number;
+  readonly roomCredentialsKey?: Buffer;
 }
 
 export function parseEnvironment(environment: NodeJS.ProcessEnv): AppConfig {
@@ -65,6 +66,15 @@ export function parseEnvironment(environment: NodeJS.ProcessEnv): AppConfig {
     throw new Error('SESSION_TTL_HOURS must be an integer between 1 and 720.');
   }
 
+  const encodedRoomKey = environment.ROOM_CREDENTIALS_KEY?.trim();
+  let roomCredentialsKey: Buffer | undefined;
+  if (encodedRoomKey) {
+    roomCredentialsKey = Buffer.from(encodedRoomKey, 'base64');
+    if (roomCredentialsKey.length !== 32 || roomCredentialsKey.toString('base64') !== encodedRoomKey) {
+      throw new Error('ROOM_CREDENTIALS_KEY must be a base64-encoded 32-byte key.');
+    }
+  }
+
   return {
     nodeEnv,
     host,
@@ -72,7 +82,8 @@ export function parseEnvironment(environment: NodeJS.ProcessEnv): AppConfig {
     ...(databaseUrl ? { databaseUrl } : {}),
     corsOrigins,
     authCookieName,
-    sessionTtlSeconds: sessionTtlHours * 60 * 60
+    sessionTtlSeconds: sessionTtlHours * 60 * 60,
+    ...(roomCredentialsKey ? { roomCredentialsKey } : {})
   };
 }
 

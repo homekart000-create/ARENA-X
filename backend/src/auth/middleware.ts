@@ -37,6 +37,15 @@ export function createRequireAuth(repository: AuthRepository, config: AppConfig)
   };
 }
 
+export function createOptionalAuth(repository: AuthRepository, config: AppConfig): preHandlerHookHandler {
+  return async (request) => {
+    const token = request.cookies[config.authCookieName];
+    if (!token) return;
+    const user = await repository.findSessionUser(hashSessionToken(token));
+    if (user?.status === 'active') request.authUser = user;
+  };
+}
+
 export const requireAdmin: preHandlerHookHandler = async (request, reply) => {
   if (!request.authUser) {
     sendUnauthorized(reply);
