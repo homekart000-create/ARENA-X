@@ -296,18 +296,19 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--acid); outline-
   .primary-nav.is-open { display: flex; flex-direction: column; animation: rise-in .18s both; }
   .nav-link { padding: 12px 2px; border-bottom: 1px solid rgba(240, 241, 232, .07); font-size: 11px; }
   .nav-link::after { display: none; }
-  .header-login { min-height: 35px; padding-inline: 11px; gap: 8px; font-size: 9px; }
+  .header-login { min-height: 44px; padding-inline: 11px; gap: 8px; font-size: 9px; }
   .hero { min-height: auto; }
   .hero-image { inset: 0; opacity: .48; background-position: 56% center; }
   .hero-scrim { background: linear-gradient(90deg, rgba(16,18,15,.93), rgba(16,18,15,.54)), linear-gradient(0deg, #10120f, transparent 55%); }
   .hero::before { width: 78%; }
-  .hero-grid { min-height: 0; grid-template-columns: 1fr; gap: 30px; padding-block: 68px 67px; }
-  .hero h1 { font-size: clamp(78px, 17vw, 108px); }
+  .hero-grid { min-height: 0; grid-template-columns: 1fr; gap: 24px; padding-block: 48px 50px; }
+  .hero h1 { font-size: clamp(48px, 13vw, 74px); }
+  .hero-side h2 { font-size: clamp(26px, 8vw, 32px); overflow-wrap: anywhere; }
   .hero-description { max-width: 335px; margin-top: 20px; }
   .hero-side { width: min(100%, 350px); min-height: 260px; justify-self: end; }
   .hero-feature-label { margin-top: 35px; }
   .hero-bottom { min-height: 37px; font-size: 7px; }
-  .section { padding-block: 64px; }
+  .section { padding-block: 54px; }
   .section-heading { align-items: end; margin-bottom: 24px; }
   .section-heading h2 { font-size: 42px; }
   .section-heading .text-link { font-size: 8px; gap: 8px; }
@@ -363,8 +364,7 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--acid); outline-
 }
 @media (max-width: 390px) {
   .wrap { width: calc(100% - 28px); }
-  .hero h1 { font-size: 75px; }
-  .hero-actions .button { min-height: 41px; gap: 12px; padding-inline: 12px; font-size: 9px; }
+  .hero-actions .button { min-height: 44px; gap: 9px; padding-inline: 12px; font-size: 9px; white-space: nowrap; }
   .section-heading h2 { font-size: 37px; }
   .section-heading .text-link { max-width: 110px; line-height: 1.5; }
   .tournament-toolbar { display: block; }
@@ -523,8 +523,8 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--acid); outline-
 @media (max-width: 420px) {
   .header-inner { gap: 6px; }
   .header-auth { gap: 4px; }
-  .header-login { min-height: 32px; padding-inline: 7px; font-size: 8px; }
-  .header-signup { display: inline; font-size: 7px; }
+  .header-login { min-height: 44px; padding-inline: 10px; font-size: 9px; }
+  .header-signup { display: inline; font-size: 8px; }
   .auth-main { padding-inline: 16px; }
   .signup-form { grid-template-columns: 1fr; }
   .signup-form .form-field { grid-column: 1; }
@@ -664,7 +664,7 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--acid); outline-
   .listing-tournament-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .tournament-card-banner { min-height: 110px; }
   .tournament-card-body { padding: 12px; }
-  .tournament-card-title h2, .tournament-card-title h3 { font-size: 20px; }
+  .tournament-card-title h2, .tournament-card-title h3 { overflow: visible; font-size: 20px; line-height: 1.05; overflow-wrap: anywhere; text-overflow: clip; white-space: normal; }
   .detail-hero { grid-template-columns: 1fr; }
   .detail-hero-banner { min-height: 210px; border-right: 0; border-bottom: 1px solid var(--line); }
   .detail-hero-mark { font-size: 112px; }
