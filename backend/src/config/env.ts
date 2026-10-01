@@ -8,6 +8,8 @@ export interface AppConfig {
   readonly port: number;
   readonly databaseUrl?: string;
   readonly corsOrigins: readonly string[];
+  readonly authCookieName: string;
+  readonly sessionTtlSeconds: number;
 }
 
 export function parseEnvironment(environment: NodeJS.ProcessEnv): AppConfig {
@@ -53,12 +55,24 @@ export function parseEnvironment(environment: NodeJS.ProcessEnv): AppConfig {
     throw new Error('CORS_ORIGINS must be configured in production.');
   }
 
+  const authCookieName = environment.AUTH_COOKIE_NAME?.trim() || 'arena_x_session';
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(authCookieName)) {
+    throw new Error('AUTH_COOKIE_NAME must contain only letters, numbers, underscores, or hyphens.');
+  }
+
+  const sessionTtlHours = Number(environment.SESSION_TTL_HOURS ?? '168');
+  if (!Number.isInteger(sessionTtlHours) || sessionTtlHours < 1 || sessionTtlHours > 720) {
+    throw new Error('SESSION_TTL_HOURS must be an integer between 1 and 720.');
+  }
+
   return {
     nodeEnv,
     host,
     port,
     ...(databaseUrl ? { databaseUrl } : {}),
-    corsOrigins
+    corsOrigins,
+    authCookieName,
+    sessionTtlSeconds: sessionTtlHours * 60 * 60
   };
 }
 

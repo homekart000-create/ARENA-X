@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 
-export async function registerHealthRoute(app: FastifyInstance): Promise<void> {
-  await app.get('/api/health', {
+export function registerHealthRoute(app: FastifyInstance): void {
+  app.get('/api/health', {
     schema: {
       response: {
         200: {
