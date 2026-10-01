@@ -11,7 +11,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json",
-    "test": "tsx --test src/auth/auth.test.ts src/competition/competition.test.ts",
+    "test": "tsx --test src/auth/auth.test.ts src/competition/competition.test.ts src/wallet/wallet.test.ts",
     "migrate:up": "node-pg-migrate up --migrations-dir migrations --database-url-var DATABASE_URL",
     "migrate:down": "node-pg-migrate down --migrations-dir migrations --database-url-var DATABASE_URL"
   },

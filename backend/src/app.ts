@@ -12,8 +12,18 @@ import { UnavailableCompetitionRepository } from './competition/unavailable-repo
 import type { AppConfig } from './config/env.js';
 import { registerCors } from './plugins/cors.js';
 import { registerHealthRoute } from './routes/health.js';
+import type { WalletRepository } from './wallet/contracts.js';
+import { WalletError } from './wallet/contracts.js';
+import { registerWalletRoutes } from './wallet/routes.js';
+import { UnavailableWalletRepository } from './wallet/unavailable-repository.js';
+import { WalletService } from './wallet/service.js';
 
-export function buildApp(config: AppConfig, authRepository: AuthRepository, competitionRepository: CompetitionRepository = new UnavailableCompetitionRepository()) {
+export function buildApp(
+  config: AppConfig,
+  authRepository: AuthRepository,
+  competitionRepository: CompetitionRepository = new UnavailableCompetitionRepository(),
+  walletRepository: WalletRepository = new UnavailableWalletRepository()
+) {
   const app = Fastify({
     logger: config.nodeEnv !== 'test',
     ajv: { customOptions: { removeAdditional: false } }
@@ -26,7 +36,7 @@ export function buildApp(config: AppConfig, authRepository: AuthRepository, comp
   app.setErrorHandler((error, request, reply) => {
     const statusCode = typeof error === 'object' && error !== null && 'statusCode' in error &&
       typeof error.statusCode === 'number' ? error.statusCode : undefined;
-    const response = error instanceof CompetitionError
+    const response = error instanceof CompetitionError || error instanceof WalletError
       ? { status: error.statusCode, code: error.code, message: error.message }
       : statusCode === 400
       ? { status: 400, code: 'BAD_REQUEST', message: 'Request could not be processed.' }
@@ -71,6 +81,7 @@ export function buildApp(config: AppConfig, authRepository: AuthRepository, comp
     registerAuthRoutes(routesApp, { config, repository: authRepository, requireAuth });
     registerUserRoutes(routesApp, { requireAuth });
     registerCompetitionRoutes(routesApp, { config, repository: competitionRepository, requireAuth, optionalAuth });
+    registerWalletRoutes(routesApp, { config, service: new WalletService(walletRepository), requireAuth });
   });
   return app;
 }

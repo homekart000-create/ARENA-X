@@ -58,7 +58,7 @@ To roll back the latest migration in a disposable development database:
 npm run migrate:down
 ```
 
-The migrations create `users`, `user_credentials`, `user_role_assignments`, `auth_sessions`, and the tournament, registration, team, invitation, match, participant, room-credential, and result tables. Password hashes and session-token hashes are stored separately from user profile fields. Migration execution was **NOT RUN** because no `DATABASE_URL` is configured.
+The migrations create `users`, `user_credentials`, `user_role_assignments`, `auth_sessions`, the tournament/team/match tables, and wallet/ledger tables. Password hashes and session-token hashes are stored separately from user profile fields. Migration execution was **NOT RUN** because no `DATABASE_URL` is configured.
 
 ## Tournament, team, and match APIs
 
@@ -77,9 +77,21 @@ Match records store selected registration links. Public match projections never 
 
 All mutation endpoints require an exact allowlisted `Origin`; configure the GitHub Pages origin or an explicitly approved development origin in `CORS_ORIGINS`. Client-provided roles, owners, statuses, result identities, or registration member lists are not trusted. Tournament capacity, participant uniqueness, team membership, invitations, match capacity, and result membership are checked server-side and backed by database constraints/transactions where applicable.
 
+## Wallet and ledger APIs
+
+- `GET /api/wallet` returns only the authenticated user's INR wallet projection.
+- `GET /api/wallet/transactions` returns that user's newest-first history and supports bounded `limit`/`offset` plus type/status filters.
+- `POST /api/wallet/withdrawal-requests` accepts `amountMinor` and an `Idempotency-Key` header; it creates a pending hold only.
+
+Money is integer paise throughout the API and database (`100 paise = INR 1`). For example, INR 12.34 is `amountMinor: 1234`. Wallet reads return `availableBalanceMinor`, `reservedBalanceMinor`, and integer total fields; client-supplied balances are never accepted. Transaction amounts are positive integer minor units; direction determines credit or debit.
+
+Internal `WalletService` operations cover deposit-credit recording, adjustment, winning, refund, and tournament entry-fee debit. They are not exposed as arbitrary HTTP balance-mutation endpoints. Each operation requires an idempotency key, locks the wallet row, writes immutable transaction facts, a status event, balanced signed ledger entries, and the cached projection in one PostgreSQL transaction. Replays with the same key/payload return the prior transaction; reuse with a different payload conflicts. A deferred database constraint verifies that each transaction's ledger postings sum to zero, and append-only triggers prevent edits/deletes to transaction facts, events, and entries.
+
+Withdrawal requests reduce available funds and move the same amount to reserved funds atomically; the transaction remains `pending`. This prevents re-spending held funds. There is no approval/settlement endpoint yet, and no bank, UPI, payment gateway, deposit collection, or external payout is performed. No wallet admin or arbitrary adjustment API is exposed.
+
 ## Tests
 
-Run the API tests with `npm test`. Tests use isolated in-memory repositories and exercise the actual Fastify routes without connecting to or modifying a PostgreSQL database. They cover authentication plus tournament, team, mode-size, match, result, and room-credential behavior. These tests do not verify SQL execution, transaction behavior, or migration compatibility against live PostgreSQL; those integration checks remain **NOT RUN** until a test `DATABASE_URL` is configured.
+Run the API tests with `npm test`. Tests use isolated in-memory repositories and exercise the actual Fastify routes and wallet service without connecting to or modifying a PostgreSQL database. They cover authentication, tournament/team/match behavior, mode sizes, wallet idempotency, atomic failure behavior, concurrent debits, history, and withdrawal holds. They do not verify SQL execution, true multi-connection PostgreSQL concurrency, or migration compatibility against live PostgreSQL; those integration checks remain **NOT RUN** until a test `DATABASE_URL` is configured.
 
 ## Build and start
 
@@ -93,5 +105,5 @@ npm run start
 
 - No localStorage users, tournaments, teams, invitations, matches, or sessions have been imported; the existing frontend remains a local demo and is not connected to these endpoints.
 - Password reset, email verification, session refresh, CSRF tokens, account administration, and distributed rate limiting are not implemented.
-- Wallet, payment, and KYC features are not implemented.
+- Real deposits, payment providers, withdrawals/payout settlement, withdrawal review APIs, KYC, reconciliation jobs, and wallet admin APIs are not implemented.
 - Production deployment still requires HTTPS, a managed secret/database configuration, operational monitoring, and a PostgreSQL migration rehearsal.
