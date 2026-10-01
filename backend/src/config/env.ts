@@ -1,0 +1,65 @@
+import 'dotenv/config';
+
+export type NodeEnvironment = 'development' | 'test' | 'production';
+
+export interface AppConfig {
+  readonly nodeEnv: NodeEnvironment;
+  readonly host: string;
+  readonly port: number;
+  readonly databaseUrl?: string;
+  readonly corsOrigins: readonly string[];
+}
+
+export function parseEnvironment(environment: NodeJS.ProcessEnv): AppConfig {
+  const nodeEnv = environment.NODE_ENV ?? 'development';
+  if (nodeEnv !== 'development' && nodeEnv !== 'test' && nodeEnv !== 'production') {
+    throw new Error('NODE_ENV must be development, test, or production.');
+  }
+
+  const port = Number(environment.PORT ?? '3000');
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error('PORT must be an integer between 1 and 65535.');
+  }
+
+  const host = environment.HOST?.trim() || '127.0.0.1';
+  const databaseUrl = environment.DATABASE_URL?.trim();
+  if (databaseUrl) {
+    try {
+      const parsedUrl = new URL(databaseUrl);
+      if (parsedUrl.protocol !== 'postgres:' && parsedUrl.protocol !== 'postgresql:') {
+        throw new Error();
+      }
+    } catch {
+      throw new Error('DATABASE_URL must be a valid PostgreSQL connection URL.');
+    }
+  }
+
+  const corsOrigins = (environment.CORS_ORIGINS ?? '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  for (const origin of corsOrigins) {
+    try {
+      const parsedOrigin = new URL(origin);
+      if ((parsedOrigin.protocol !== 'http:' && parsedOrigin.protocol !== 'https:') || parsedOrigin.origin !== origin) {
+        throw new Error();
+      }
+    } catch {
+      throw new Error('CORS_ORIGINS must contain exact http or https origins.');
+    }
+  }
+
+  if (nodeEnv === 'production' && corsOrigins.length === 0) {
+    throw new Error('CORS_ORIGINS must be configured in production.');
+  }
+
+  return {
+    nodeEnv,
+    host,
+    port,
+    ...(databaseUrl ? { databaseUrl } : {}),
+    corsOrigins
+  };
+}
+
+export const config = parseEnvironment(process.env);
