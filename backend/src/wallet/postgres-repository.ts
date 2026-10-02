@@ -5,6 +5,7 @@ import type {
   WalletCommand,
   WalletCommandResult,
   WalletRepository,
+  TransactionalWalletRepository,
   WalletTransactionFilter,
   WalletTransactionStatus,
   WalletTransactionView,
@@ -120,7 +121,7 @@ const walletSelect = `
     WHERE e.transaction_id=t.id ORDER BY e.occurred_at DESC, e.id DESC LIMIT 1
   ) latest ON true`;
 
-export class PostgresWalletRepository implements WalletRepository {
+export class PostgresWalletRepository implements TransactionalWalletRepository {
   constructor(private readonly pool: Pool) {}
 
   private async transaction<T>(action: (client: PoolClient) => Promise<T>): Promise<T> {
@@ -303,32 +304,34 @@ export class PostgresWalletRepository implements WalletRepository {
   }
 
   async postTransaction(command: WalletCommand): Promise<WalletCommandResult> {
-    return this.transaction(async (client) => {
-      const wallet = await this.lockWallet(client, command.userId);
-      const hash = walletRequestHash(command);
-      const existing = await this.findIdempotent(client, command, hash);
-      if (existing) {
-        return { wallet: await this.readWallet(client, command.userId), transaction: mapTransaction(existing), replayed: true };
-      }
-      if (command.direction === 'debit' && Number(wallet.available_balance_minor) < command.amountMinor) {
-        throw new WalletError(409, 'INSUFFICIENT_FUNDS', 'Available wallet balance is insufficient.');
-      }
+    return this.transaction((client) => this.postTransactionWithinTransaction(client, command));
+  }
 
-      const accounts = await this.getAccounts(client, wallet.id, false);
-      const transactionId = await this.insertTransaction(client, wallet.id, command, hash, 'completed');
-      await this.updateProjection(client, wallet.id, command.amountMinor, command.direction, false);
-      const amount = command.direction === 'credit' ? command.amountMinor : -command.amountMinor;
-      const opposite = -amount;
-      await this.insertEntries(client, transactionId, wallet.currency, [
-        { accountId: accounts.available, amountMinor: amount, kind: command.direction },
-        { accountId: accounts.clearing, amountMinor: opposite, kind: command.direction }
-      ]);
-      return {
-        wallet: await this.readWallet(client, command.userId),
-        transaction: mapTransaction(await this.readTransaction(client, transactionId)),
-        replayed: false
-      };
-    });
+  async postTransactionWithinTransaction(client: PoolClient, command: WalletCommand): Promise<WalletCommandResult> {
+    const wallet = await this.lockWallet(client, command.userId);
+    const hash = walletRequestHash(command);
+    const existing = await this.findIdempotent(client, command, hash);
+    if (existing) {
+      return { wallet: await this.readWallet(client, command.userId), transaction: mapTransaction(existing), replayed: true };
+    }
+    if (command.direction === 'debit' && Number(wallet.available_balance_minor) < command.amountMinor) {
+      throw new WalletError(409, 'INSUFFICIENT_FUNDS', 'Available wallet balance is insufficient.');
+    }
+
+    const accounts = await this.getAccounts(client, wallet.id, false);
+    const transactionId = await this.insertTransaction(client, wallet.id, command, hash, 'completed');
+    await this.updateProjection(client, wallet.id, command.amountMinor, command.direction, false);
+    const amount = command.direction === 'credit' ? command.amountMinor : -command.amountMinor;
+    const opposite = -amount;
+    await this.insertEntries(client, transactionId, wallet.currency, [
+      { accountId: accounts.available, amountMinor: amount, kind: command.direction },
+      { accountId: accounts.clearing, amountMinor: opposite, kind: command.direction }
+    ]);
+    return {
+      wallet: await this.readWallet(client, command.userId),
+      transaction: mapTransaction(await this.readTransaction(client, transactionId)),
+      replayed: false
+    };
   }
 
   async requestWithdrawal(command: WalletCommand): Promise<WithdrawalRequestView> {

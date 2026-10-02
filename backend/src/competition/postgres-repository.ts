@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
 import {
   CompetitionError,
@@ -19,6 +20,8 @@ import {
   type TournamentType,
   type TournamentView
 } from './contracts.js';
+import { WalletError } from '../wallet/contracts.js';
+import { MAX_WALLET_AMOUNT_MINOR, WalletService } from '../wallet/service.js';
 
 type Queryable = Pool | PoolClient;
 
@@ -99,8 +102,9 @@ function isPgError(error: unknown, code: string): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === code;
 }
 
-function safeDatabaseError(error: unknown): CompetitionError {
+function safeDatabaseError(error: unknown): Error {
   if (error instanceof CompetitionError) return error;
+  if (error instanceof WalletError) return error;
   if (isPgError(error, '23505')) return new CompetitionError(409, 'CONFLICT', 'The requested record conflicts with existing data.');
   if (isPgError(error, '23503') || isPgError(error, '23514')) return new CompetitionError(400, 'INVALID_REFERENCE', 'The request contains invalid related data.');
   return new CompetitionError(503, 'SERVICE_UNAVAILABLE', 'Competition storage is temporarily unavailable.');
@@ -176,7 +180,10 @@ function mapMatch(row: MatchRow, result?: MatchView['result'], includeRoomVisibi
 }
 
 export class PostgresCompetitionRepository implements CompetitionRepository {
-  constructor(private readonly pool: Pool) {}
+  constructor(
+    private readonly pool: Pool,
+    private readonly walletService?: WalletService
+  ) {}
 
   private async transaction<T>(action: (client: PoolClient) => Promise<T>): Promise<T> {
     let client: PoolClient;
@@ -357,6 +364,58 @@ export class PostgresCompetitionRepository implements CompetitionRepository {
 
   async registerForTournament(tournamentId: string, userId: string, teamId?: string): Promise<RegistrationView> {
     return this.transaction(async (client) => {
+      const tournamentResult = await client.query<TournamentRow>(
+        `SELECT id::text AS id, participation_type, status, max_slots, registration_deadline, entry_fee_minor
+         FROM tournaments WHERE id = $1 FOR UPDATE`,
+        [tournamentId]
+      );
+      const tournament = tournamentResult.rows[0];
+      if (!tournament || tournament.status === 'draft') throw new CompetitionError(404, 'TOURNAMENT_NOT_FOUND', 'Tournament not found.');
+      const priorRegistration = await client.query<{
+        id: string;
+        captain_user_id: string;
+        team_id: string | null;
+        registered_at: Date | string;
+      }>(
+        `SELECT r.id::text AS id, r.captain_user_id::text AS captain_user_id,
+          r.team_id::text AS team_id, r.registered_at
+         FROM tournament_registrations r
+         JOIN registration_members rm ON rm.registration_id=r.id
+         WHERE r.tournament_id=$1 AND r.status='registered'
+           AND rm.user_id=$2 AND rm.left_at IS NULL
+         FOR UPDATE OF r`,
+        [tournamentId, userId]
+      );
+      if (priorRegistration.rows[0]) {
+        const existing = priorRegistration.rows[0];
+        if (tournament.participation_type === 'Solo' && teamId) {
+          throw new CompetitionError(400, 'WRONG_ROSTER_SIZE', 'Solo registration must contain only the authenticated player.');
+        }
+        if (tournament.participation_type !== 'Solo' && !teamId) {
+          throw new CompetitionError(400, 'TEAM_REQUIRED', 'A team is required for Duo and Squad registration.');
+        }
+        if (existing.team_id !== (teamId ?? null)) {
+          throw new CompetitionError(409, 'DUPLICATE_REGISTRATION', 'A player is already registered for this tournament.');
+        }
+        const roster = await client.query<{ user_id: string }>(
+          `SELECT user_id::text AS user_id FROM registration_members
+           WHERE registration_id=$1 AND left_at IS NULL ORDER BY joined_at, user_id`,
+          [existing.id]
+        );
+        return {
+          registrationId: existing.id,
+          tournamentId,
+          userId: existing.captain_user_id,
+          teamId: existing.team_id,
+          memberIds: roster.rows.map((member) => member.user_id),
+          registeredAt: timestamp(existing.registered_at),
+          status: 'registered',
+          replayed: true
+        };
+      }
+      if (!['upcoming', 'live'].includes(tournament.status)) throw new CompetitionError(400, 'REGISTRATION_CLOSED', 'Registration is not open for this tournament.');
+      if (new Date(tournament.registration_deadline).getTime() < Date.now()) throw new CompetitionError(400, 'REGISTRATION_CLOSED', 'The registration deadline has passed.');
+
       let members = [userId];
       let captainId = userId;
       let team: TeamView | null = null;
@@ -365,19 +424,6 @@ export class PostgresCompetitionRepository implements CompetitionRepository {
         if (!team || team.status !== 'active') throw new CompetitionError(404, 'TEAM_NOT_FOUND', 'Team not found.');
         if (!team.members.some((member) => member.userId === userId)) throw new CompetitionError(403, 'TEAM_MEMBERSHIP_REQUIRED', 'Join this team before registering it.');
         captainId = team.ownerId;
-      }
-
-      const tournamentResult = await client.query<TournamentRow>(
-        `SELECT id::text AS id, participation_type, status, max_slots, registration_deadline, entry_fee_minor
-         FROM tournaments WHERE id = $1 FOR UPDATE`,
-        [tournamentId]
-      );
-      const tournament = tournamentResult.rows[0];
-      if (!tournament || tournament.status === 'draft') throw new CompetitionError(404, 'TOURNAMENT_NOT_FOUND', 'Tournament not found.');
-      if (!['upcoming', 'live'].includes(tournament.status)) throw new CompetitionError(400, 'REGISTRATION_CLOSED', 'Registration is not open for this tournament.');
-      if (new Date(tournament.registration_deadline).getTime() < Date.now()) throw new CompetitionError(400, 'REGISTRATION_CLOSED', 'The registration deadline has passed.');
-      if (BigInt(tournament.entry_fee_minor) !== 0n) {
-        throw new CompetitionError(409, 'PAID_REGISTRATION_UNAVAILABLE', 'Paid tournament registration is unavailable until payment settlement is supported.');
       }
 
       const required = expectedRosterSize(tournament.participation_type);
@@ -406,10 +452,40 @@ export class PostgresCompetitionRepository implements CompetitionRepository {
       );
       if (conflict.rowCount) throw new CompetitionError(409, 'DUPLICATE_REGISTRATION', 'A player on this roster is already registered for this tournament.');
 
-      const inserted = await client.query<{ id: string; registered_at: Date | string }>(
-        `INSERT INTO tournament_registrations (tournament_id, captain_user_id, team_id, entry_fee_minor, currency)
-         VALUES ($1,$2,$3,$4,'INR') RETURNING id::text AS id, registered_at`,
-        [tournamentId, captainId, team?.teamId ?? null, tournament.entry_fee_minor]
+      const registrationId = randomUUID();
+      const entryFeeMinor = Number(tournament.entry_fee_minor);
+      let walletEntry: Awaited<ReturnType<WalletService['tournamentEntryFeeWithinTransaction']>> | null = null;
+      if (!Number.isSafeInteger(entryFeeMinor) || entryFeeMinor < 0 || entryFeeMinor > MAX_WALLET_AMOUNT_MINOR) {
+        throw new CompetitionError(503, 'TOURNAMENT_FEE_INVALID', 'Tournament entry fee is temporarily unavailable.');
+      }
+      if (entryFeeMinor > 0) {
+        if (!this.walletService) {
+          throw new CompetitionError(503, 'WALLET_SETTLEMENT_UNAVAILABLE', 'Tournament entry settlement is temporarily unavailable.');
+        }
+        walletEntry = await this.walletService.tournamentEntryFeeWithinTransaction(
+          client,
+          userId,
+          {
+            amountMinor: entryFeeMinor,
+            idempotencyKey: `tournament-entry:${registrationId}`,
+            referenceId: `tournament-entry:${registrationId}`,
+            description: `Entry fee for ${tournamentId}`,
+            metadata: { tournamentId, registrationId }
+          },
+          userId
+        );
+      }
+      const inserted = await client.query<{ registered_at: Date | string }>(
+        `INSERT INTO tournament_registrations (
+          id, tournament_id, captain_user_id, team_id, entry_fee_minor, currency,
+          entry_fee_payer_user_id, entry_fee_wallet_id, entry_fee_transaction_id
+        ) VALUES ($1,$2,$3,$4,$5,'INR',$6,$7,$8) RETURNING registered_at`,
+        [
+          registrationId, tournamentId, captainId, team?.teamId ?? null, tournament.entry_fee_minor,
+          walletEntry ? userId : null,
+          walletEntry?.wallet.walletId ?? null,
+          walletEntry?.transaction.transactionId ?? null
+        ]
       );
       const registration = inserted.rows[0];
       if (!registration) throw new CompetitionError(503, 'SERVICE_UNAVAILABLE', 'Competition storage is temporarily unavailable.');
@@ -417,25 +493,36 @@ export class PostgresCompetitionRepository implements CompetitionRepository {
         await client.query(
           `INSERT INTO registration_members (registration_id, tournament_id, user_id, role)
            VALUES ($1,$2,$3,$4)`,
-          [registration.id, tournamentId, memberId, memberId === captainId || (index === 0 && tournament.participation_type === 'Solo') ? 'captain' : 'member']
+          [registrationId, tournamentId, memberId, memberId === captainId || (index === 0 && tournament.participation_type === 'Solo') ? 'captain' : 'member']
         );
       }
       return {
-        registrationId: registration.id,
+        registrationId,
         tournamentId,
         userId: captainId,
         teamId: team?.teamId ?? null,
         memberIds: members,
         registeredAt: timestamp(registration.registered_at),
-        status: 'registered'
+        status: 'registered',
+        replayed: false
       };
     });
   }
 
   async cancelTournamentRegistration(tournamentId: string, userId: string): Promise<boolean> {
     return this.transaction(async (client) => {
-      const registration = await client.query<{ id: string }>(
-        `SELECT r.id::text AS id FROM tournament_registrations r
+      const registration = await client.query<{
+        id: string;
+        entry_fee_minor: string;
+        entry_fee_payer_user_id: string | null;
+        entry_fee_wallet_id: string | null;
+        entry_fee_transaction_id: string | null;
+      }>(
+        `SELECT r.id::text AS id, r.entry_fee_minor::text AS entry_fee_minor,
+          r.entry_fee_payer_user_id::text AS entry_fee_payer_user_id,
+          r.entry_fee_wallet_id::text AS entry_fee_wallet_id,
+          r.entry_fee_transaction_id::text AS entry_fee_transaction_id
+         FROM tournament_registrations r
          JOIN registration_members rm ON rm.registration_id = r.id
          WHERE r.tournament_id = $1 AND r.status = 'registered' AND rm.user_id = $2 AND rm.left_at IS NULL
          FOR UPDATE OF r`,
@@ -443,7 +530,35 @@ export class PostgresCompetitionRepository implements CompetitionRepository {
       );
       const row = registration.rows[0];
       if (!row) return false;
-      await client.query("UPDATE tournament_registrations SET status='cancelled', cancelled_at=now(), updated_at=now() WHERE id=$1", [row.id]);
+      const feeMinor = Number(row.entry_fee_minor);
+      if (!Number.isSafeInteger(feeMinor) || feeMinor < 0) {
+        throw new CompetitionError(503, 'TOURNAMENT_FEE_INVALID', 'Tournament entry fee is temporarily unavailable.');
+      }
+      let refundTransactionId: string | null = null;
+      if (feeMinor > 0) {
+        if (!this.walletService || !row.entry_fee_payer_user_id || !row.entry_fee_wallet_id || !row.entry_fee_transaction_id) {
+          throw new CompetitionError(503, 'WALLET_SETTLEMENT_UNAVAILABLE', 'Tournament refund processing is temporarily unavailable.');
+        }
+        const refund = await this.walletService.refundWithinTransaction(
+          client,
+          row.entry_fee_payer_user_id,
+          {
+            amountMinor: feeMinor,
+            idempotencyKey: `tournament-refund:${row.id}`,
+            referenceId: `tournament-refund:${row.id}`,
+            relatedTransactionId: row.entry_fee_transaction_id,
+            description: `Refund for cancelled tournament entry ${tournamentId}`,
+            metadata: { tournamentId, registrationId: row.id }
+          },
+          userId
+        );
+        refundTransactionId = refund.transaction.transactionId;
+      }
+      await client.query(
+        `UPDATE tournament_registrations SET status='cancelled', cancelled_at=now(),
+          entry_fee_refund_transaction_id=$2, updated_at=now() WHERE id=$1`,
+        [row.id, refundTransactionId]
+      );
       await client.query('UPDATE registration_members SET left_at=now(), updated_at=now() WHERE registration_id=$1 AND left_at IS NULL', [row.id]);
       return true;
     });

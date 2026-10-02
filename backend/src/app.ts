@@ -17,12 +17,20 @@ import { WalletError } from './wallet/contracts.js';
 import { registerWalletRoutes } from './wallet/routes.js';
 import { UnavailableWalletRepository } from './wallet/unavailable-repository.js';
 import { WalletService } from './wallet/service.js';
+import type { PaymentProvider, PaymentRepository } from './payments/contracts.js';
+import { PaymentError } from './payments/contracts.js';
+import { PostgresPaymentRepository } from './payments/postgres-repository.js';
+import { RazorpayPaymentProvider } from './payments/provider.js';
+import { registerPaymentRoutes } from './payments/routes.js';
+import { UnavailablePaymentRepository } from './payments/unavailable-repository.js';
 
 export function buildApp(
   config: AppConfig,
   authRepository: AuthRepository,
   competitionRepository: CompetitionRepository = new UnavailableCompetitionRepository(),
-  walletRepository: WalletRepository = new UnavailableWalletRepository()
+  walletRepository: WalletRepository = new UnavailableWalletRepository(),
+  paymentRepository: PaymentRepository = new UnavailablePaymentRepository(),
+  paymentProvider?: PaymentProvider
 ) {
   const app = Fastify({
     logger: config.nodeEnv !== 'test',
@@ -36,7 +44,7 @@ export function buildApp(
   app.setErrorHandler((error, request, reply) => {
     const statusCode = typeof error === 'object' && error !== null && 'statusCode' in error &&
       typeof error.statusCode === 'number' ? error.statusCode : undefined;
-    const response = error instanceof CompetitionError || error instanceof WalletError
+    const response = error instanceof CompetitionError || error instanceof WalletError || error instanceof PaymentError
       ? { status: error.statusCode, code: error.code, message: error.message }
       : statusCode === 400
       ? { status: 400, code: 'BAD_REQUEST', message: 'Request could not be processed.' }
@@ -82,6 +90,41 @@ export function buildApp(
     registerUserRoutes(routesApp, { requireAuth });
     registerCompetitionRoutes(routesApp, { config, repository: competitionRepository, requireAuth, optionalAuth });
     registerWalletRoutes(routesApp, { config, service: new WalletService(walletRepository), requireAuth });
+    routesApp.register(async (paymentsApp) => {
+      paymentsApp.addContentTypeParser('application/json', { parseAs: 'buffer' }, (request, body, done) => {
+        if (request.url.startsWith('/api/payments/webhooks/')) {
+          done(null, body);
+          return;
+        }
+        try {
+          done(null, JSON.parse(body.toString('utf8')));
+        } catch {
+          done(new Error('Invalid JSON body.'));
+        }
+      });
+      paymentsApp.addContentTypeParser('application/*+json', { parseAs: 'buffer' }, (request, body, done) => {
+        if (request.url.startsWith('/api/payments/webhooks/')) {
+          done(null, body);
+          return;
+        }
+        try {
+          done(null, JSON.parse(body.toString('utf8')));
+        } catch {
+          done(new Error('Invalid JSON body.'));
+        }
+      });
+      registerPaymentRoutes(paymentsApp, {
+        config,
+        repository: paymentRepository,
+        provider: paymentProvider ?? new RazorpayPaymentProvider({
+          mode: config.paymentsMode,
+          ...(config.razorpayKeyId ? { keyId: config.razorpayKeyId } : {}),
+          ...(config.razorpayKeySecret ? { keySecret: config.razorpayKeySecret } : {}),
+          ...(config.razorpayWebhookSecret ? { webhookSecret: config.razorpayWebhookSecret } : {})
+        }),
+        requireAuth
+      });
+    });
   });
   return app;
 }

@@ -81,7 +81,8 @@
     joinDialog.innerHTML = `<button class="dialog-close" type="button" aria-label="Close confirmation" data-join-cancel>×</button>
       <div class="join-dialog-content"><p class="eyebrow"><span class="eyebrow-line"></span> ARENA X / CONFIRM ENTRY</p><h2 id="join-confirm-title">Join Tournament</h2>
       <div class="join-dialog-facts"><div><span>TOURNAMENT</span><strong data-confirm-name></strong></div><div><span>GAME / TYPE</span><strong data-confirm-game></strong></div><div><span>DATE / TIME</span><strong data-confirm-start></strong></div><div><span>ENTRY FEE</span><strong data-confirm-fee></strong></div><div><span>PRIZE POOL</span><strong data-confirm-prize></strong></div><div><span>AVAILABLE SLOTS</span><strong data-confirm-slots></strong></div></div>
-      <p class="demo-payment-note" data-confirm-payment hidden>Entry-fee collection is unavailable until an atomic wallet settlement endpoint is provided.</p>
+      <div class="detail-sidebar-row" data-confirm-balance-row hidden><span>AVAILABLE WALLET BALANCE</span><strong data-confirm-balance>Loading...</strong></div>
+      <p class="demo-payment-note" data-confirm-payment hidden></p>
       <p class="join-dialog-copy" data-join-copy>Confirm to submit your registration to ARENA X.</p>
       <div class="join-dialog-actions"><button class="button button-outline" type="button" data-join-cancel>Cancel</button><button class="button button-primary" type="button" data-join-confirm><span data-confirm-label>Confirm Registration</span><span aria-hidden="true">↗</span></button></div></div>`;
     document.body.append(joinDialog);
@@ -102,16 +103,74 @@
     dialog.querySelector('[data-confirm-fee]').textContent = tournament.entryFee ? money(tournament.entryFee) : 'FREE';
     dialog.querySelector('[data-confirm-prize]').textContent = money(tournament.prizePool);
     dialog.querySelector('[data-confirm-slots]').textContent = String(store.getAvailableSlots(tournament));
-    const paidEntryUnavailable = tournament.entryFee > 0;
-    dialog.querySelector('[data-confirm-payment]').hidden = !paidEntryUnavailable;
-    dialog.querySelector('[data-join-copy]').textContent = paidEntryUnavailable
-      ? 'This paid tournament cannot accept registrations until entry-fee settlement is supported.'
+    const paidEntry = tournament.entryFee > 0;
+    dialog.querySelector('[data-confirm-payment]').hidden = true;
+    dialog.querySelector('[data-confirm-balance-row]').hidden = !paidEntry;
+    dialog.querySelector('[data-confirm-balance]').textContent = paidEntry ? 'Checking wallet…' : '';
+    dialog.querySelector('[data-join-copy]').textContent = paidEntry
+      ? 'Checking your current backend wallet balance before registration.'
       : 'Confirm to submit your registration to ARENA X.';
     const confirmButton = dialog.querySelector('[data-join-confirm]');
-    confirmButton.disabled = paidEntryUnavailable;
+    confirmButton.disabled = paidEntry;
     confirmButton.classList.remove('is-loading');
-    dialog.querySelector('[data-confirm-label]').textContent = paidEntryUnavailable ? 'Registration unavailable' : 'Confirm Registration';
+    dialog.querySelector('[data-confirm-label]').textContent = paidEntry ? 'Checking wallet...' : 'Confirm Registration';
     dialog.showModal();
+    if (paidEntry) void loadJoinWalletBalance(tournament, dialog);
+  }
+
+  function formatPaise(value) {
+    const rupees = Math.floor(value / 100);
+    const paise = value % 100;
+    return `₹${rupees.toLocaleString('en-IN')}.${String(paise).padStart(2, '0')}`;
+  }
+
+  async function loadJoinWalletBalance(tournament, dialog) {
+    const balance = dialog.querySelector('[data-confirm-balance]');
+    const note = dialog.querySelector('[data-confirm-payment]');
+    const copy = dialog.querySelector('[data-join-copy]');
+    const confirmButton = dialog.querySelector('[data-join-confirm]');
+    const label = dialog.querySelector('[data-confirm-label]');
+    try {
+      const response = await globalThis.ArenaApi.request('/api/wallet');
+      const wallet = response.wallet;
+      const userId = auth.getCurrentUser()?.userId;
+      if (!wallet || wallet.userId !== userId || wallet.currency !== 'INR'
+        || !Number.isSafeInteger(wallet.availableBalanceMinor) || wallet.availableBalanceMinor < 0) {
+        throw new Error('The backend returned invalid wallet information.');
+      }
+      if (pendingJoinId !== tournament.id || !dialog.open) return;
+      balance.textContent = formatPaise(wallet.availableBalanceMinor);
+      const feeMinor = Math.round(tournament.entryFee * 100);
+      const enoughFunds = wallet.availableBalanceMinor >= feeMinor;
+      confirmButton.disabled = !enoughFunds;
+      label.textContent = enoughFunds ? 'Confirm Registration' : 'Insufficient balance';
+      copy.textContent = enoughFunds
+        ? 'The server will confirm the entry fee and wallet debit when you register.'
+        : 'Your available backend wallet balance is below the entry fee.';
+      note.hidden = enoughFunds;
+      note.textContent = enoughFunds ? '' : 'Add Money is not available from this registration flow.';
+    } catch (error) {
+      if (pendingJoinId !== tournament.id || !dialog.open) return;
+      balance.textContent = 'Unavailable';
+      note.hidden = false;
+      note.textContent = error?.message || 'Wallet information could not be loaded.';
+      copy.textContent = 'Wallet balance must be confirmed before paid registration.';
+      confirmButton.disabled = true;
+      label.textContent = 'Wallet unavailable';
+    }
+  }
+
+  async function refreshWalletState() {
+    try {
+      if (globalThis.ArenaWallet?.loadWallet) {
+        const result = await globalThis.ArenaWallet.loadWallet();
+        if (!result.success) throw new Error(result.error?.message || 'Wallet balance could not be refreshed.');
+        return;
+      }
+      await globalThis.ArenaApi.request('/api/wallet');
+    } catch (error) {
+      showToast(error?.message || 'Registration succeeded, but wallet balance could not be refreshed.', true);
+    }
   }
 
   async function refreshTournamentViews() {
@@ -125,11 +184,8 @@
   async function confirmRegistration() {
     if (!pendingJoinId) return;
     const tournament = store.getTournamentById(pendingJoinId);
-    if (tournament?.entryFee > 0) {
-      showToast('Paid registration is unavailable until backend wallet settlement is supported.', true);
-      return;
-    }
     const confirmButton = joinDialog.querySelector('[data-join-confirm]');
+    if (confirmButton.disabled) return;
     confirmButton.disabled = true;
     confirmButton.classList.add('is-loading');
     joinDialog.querySelector('[data-confirm-label]').textContent = 'Registering...';
@@ -145,6 +201,7 @@
     joinDialog.close();
     pendingJoinId = null;
     await refreshTournamentViews();
+    if (tournament?.entryFee > 0) await refreshWalletState();
     showToast(`Registration successful! You have joined ${result.tournament?.name || 'this tournament'}.`);
   }
 
@@ -324,6 +381,7 @@
     if (!result.success) showToast(result.message || 'Registration could not be cancelled.', true);
     else showToast('Registration cancelled.');
     await refreshTournamentViews();
+    if (result.success && store.getTournamentById(tournamentId)?.entryFee > 0) await refreshWalletState();
   }
 
   document.addEventListener('click', (event) => {

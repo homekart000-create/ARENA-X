@@ -82,6 +82,11 @@ class TestAuthRepository implements AuthRepository {
 
 interface MemoryTeam extends TeamView {}
 interface MemoryRegistration extends RegistrationView {}
+interface MemoryEntryFee {
+  readonly payerUserId: string;
+  readonly amountMinor: number;
+  readonly transactionId: string;
+}
 interface MemoryMatch extends MatchView {
   readonly registrationIds: readonly string[];
   readonly roomIdCipher: Buffer | null;
@@ -99,16 +104,19 @@ class MemoryCompetitionRepository implements CompetitionRepository {
   readonly invitations = new Map<string, InvitationView>();
   readonly registrations = new Map<string, MemoryRegistration>();
   readonly matches = new Map<string, MemoryMatch>();
+  readonly walletBalances = new Map<string, number>();
+  readonly entryFees = new Map<string, MemoryEntryFee>();
   walletWrites = 0;
+  failRegistrationAfterEntryDebit = false;
 
   async addUser(userId: string, username: string): Promise<void> {
     this.users.add(userId);
     this.usernames.set(userId, username);
   }
 
-  seedTournament(type: TournamentType = 'Solo', status: TournamentStatus = 'upcoming'): TournamentView {
+  seedTournament(type: TournamentType = 'Solo', status: TournamentStatus = 'upcoming', entryFee = 0): TournamentView {
     const tournament: TournamentView = {
-      id: randomUUID(), name: `Test ${type} event`, game: 'Free Fire', type, entryFee: 10, prizePool: 100,
+      id: randomUUID(), name: `Test ${type} event`, game: 'Free Fire', type, entryFee, prizePool: 100,
       maxSlots: 8, joinedSlots: 0, startsAt: new Date(Date.now() + 86400000).toISOString(),
       registrationDeadline: new Date(Date.now() + 3600000).toISOString(), status, mode: 'Battle Royale',
       description: '', banner: '', map: '', host: '', rules: [], prizeDistribution: [], featured: false,
@@ -161,13 +169,36 @@ class MemoryCompetitionRepository implements CompetitionRepository {
       if (resolvedTeam.members.length !== MODE_SIZE[tournament.type]) throw new CompetitionError(400, 'WRONG_ROSTER_SIZE', `${tournament.type} requires exactly ${MODE_SIZE[tournament.type]} players.`);
       members = resolvedTeam.members.map((member) => member.userId);
     }
+    const existing = [...this.registrations.values()].find((registration) =>
+      registration.tournamentId === tournamentId && registration.status === 'registered'
+      && registration.memberIds.includes(userId));
+    if (existing) return { ...existing, replayed: true };
     if (tournament.joinedSlots >= tournament.maxSlots) throw new CompetitionError(409, 'TOURNAMENT_FULL', 'Tournament is full.');
     if ([...this.registrations.values()].some((registration) => registration.tournamentId === tournamentId && registration.status === 'registered' && registration.memberIds.some((memberId) => members.includes(memberId)))) {
       throw new CompetitionError(409, 'DUPLICATE_REGISTRATION', 'A player is already registered.');
     }
+    const entryFeeMinor = Math.round(tournament.entryFee * 100);
+    const availableBalance = this.walletBalances.get(userId) ?? 0;
+    if (entryFeeMinor > availableBalance) throw new CompetitionError(409, 'INSUFFICIENT_FUNDS', 'Available wallet balance is insufficient.');
+    const registrationId = randomUUID();
+    if (entryFeeMinor > 0) {
+      this.walletBalances.set(userId, availableBalance - entryFeeMinor);
+      this.walletWrites += 1;
+      this.entryFees.set(registrationId, { payerUserId: userId, amountMinor: entryFeeMinor, transactionId: randomUUID() });
+    }
+    if (this.failRegistrationAfterEntryDebit) {
+      this.failRegistrationAfterEntryDebit = false;
+      if (entryFeeMinor > 0) {
+        this.walletBalances.set(userId, availableBalance);
+        this.walletWrites -= 1;
+        this.entryFees.delete(registrationId);
+      }
+      throw new CompetitionError(503, 'SERVICE_UNAVAILABLE', 'Competition storage is temporarily unavailable.');
+    }
     const registration: RegistrationView = {
-      registrationId: randomUUID(), tournamentId, userId: resolvedTeam?.ownerId ?? userId,
-      teamId: resolvedTeam?.teamId ?? null, memberIds: members, registeredAt: new Date().toISOString(), status: 'registered'
+      registrationId, tournamentId, userId: resolvedTeam?.ownerId ?? userId,
+      teamId: resolvedTeam?.teamId ?? null, memberIds: members, registeredAt: new Date().toISOString(),
+      status: 'registered', replayed: false
     };
     this.registrations.set(registration.registrationId, registration);
     this.tournaments.set(tournamentId, { ...tournament, joinedSlots: tournament.joinedSlots + 1 });
@@ -178,6 +209,12 @@ class MemoryCompetitionRepository implements CompetitionRepository {
     const entry = [...this.registrations.entries()].find(([, registration]) => registration.tournamentId === tournamentId && registration.status === 'registered' && registration.memberIds.includes(userId));
     if (!entry) return false;
     const [registrationId, registration] = entry;
+    const fee = this.entryFees.get(registrationId);
+    if (fee) {
+      this.walletBalances.set(fee.payerUserId, (this.walletBalances.get(fee.payerUserId) ?? 0) + fee.amountMinor);
+      this.walletWrites += 1;
+      this.entryFees.delete(registrationId);
+    }
     this.registrations.delete(registrationId);
     const tournament = this.tournaments.get(tournamentId);
     if (tournament) this.tournaments.set(tournamentId, { ...tournament, joinedSlots: Math.max(0, tournament.joinedSlots - 1) });
@@ -509,11 +546,13 @@ test('tournament participation type cannot change after registration', async (co
   assert.equal(response.statusCode, 409);
 });
 
-test('duplicate tournament registration is rejected', async (context) => {
+test('duplicate tournament registration reuses its existing entry without another debit', async (context) => {
   const harness = await createHarness(context);
   const tournament = harness.domain.seedTournament('Solo');
   assert.equal((await registerTournament(harness, tournament.id)).statusCode, 201);
-  assert.equal((await registerTournament(harness, tournament.id)).statusCode, 409);
+  const replay = await registerTournament(harness, tournament.id);
+  assert.equal(replay.statusCode, 200);
+  assert.equal(replay.json().registration.replayed, true);
 });
 
 test('tournament registration requires authentication', async (context) => {
@@ -525,12 +564,89 @@ test('tournament registration requires authentication', async (context) => {
   assert.equal(response.statusCode, 401);
 });
 
-test('tournament registration never mutates wallet state', async (context) => {
+test('free tournament registration never mutates wallet state', async (context) => {
   const harness = await createHarness(context);
-  const tournament = harness.domain.seedTournament('Solo');
+  const tournament = harness.domain.seedTournament('Solo', 'upcoming', 0);
   const response = await registerTournament(harness, tournament.id);
   assert.equal(response.statusCode, 201);
   assert.equal(harness.domain.walletWrites, 0);
+});
+
+test('paid registration debits the exact server fee once and returns the existing registration on retry', async (context) => {
+  const harness = await createHarness(context);
+  const tournament = harness.domain.seedTournament('Solo', 'upcoming', 7.25);
+  harness.domain.walletBalances.set(harness.user.userId, 1000);
+  const forged = await harness.app.inject({
+    method: 'POST', url: `/api/tournaments/${tournament.id}/register`, headers: jsonHeaders(harness.userCookie),
+    payload: { userId: harness.targets[0]!.userId, entryFee: 1, amountMinor: 1, status: 'paid' }
+  });
+  assert.equal(forged.statusCode, 400);
+
+  const first = await registerTournament(harness, tournament.id);
+  const replay = await registerTournament(harness, tournament.id);
+  assert.equal(first.statusCode, 201);
+  assert.equal(first.json().registration.replayed, false);
+  assert.equal(replay.statusCode, 200);
+  assert.equal(replay.json().registration.replayed, true);
+  assert.equal(replay.json().registration.registrationId, first.json().registration.registrationId);
+  assert.equal(harness.domain.walletBalances.get(harness.user.userId), 275);
+  assert.equal(harness.domain.walletWrites, 1);
+});
+
+test('paid registration rejects insufficient balance and rolls back a debit if registration creation fails', async (context) => {
+  const harness = await createHarness(context);
+  const tournament = harness.domain.seedTournament('Solo', 'upcoming', 10);
+  harness.domain.walletBalances.set(harness.user.userId, 999);
+  const insufficient = await registerTournament(harness, tournament.id);
+  assert.equal(insufficient.statusCode, 409);
+  assert.equal(insufficient.json().error.code, 'INSUFFICIENT_FUNDS');
+  assert.equal(harness.domain.walletBalances.get(harness.user.userId), 999);
+  assert.equal(harness.domain.registrations.size, 0);
+  assert.equal(harness.domain.walletWrites, 0);
+
+  harness.domain.walletBalances.set(harness.user.userId, 1500);
+  harness.domain.failRegistrationAfterEntryDebit = true;
+  const failed = await registerTournament(harness, tournament.id);
+  assert.equal(failed.statusCode, 503);
+  assert.equal(harness.domain.walletBalances.get(harness.user.userId), 1500);
+  assert.equal(harness.domain.registrations.size, 0);
+  assert.equal(harness.domain.walletWrites, 0);
+});
+
+test('concurrent paid-registration retries create one registration and one debit', async (context) => {
+  const harness = await createHarness(context);
+  const tournament = harness.domain.seedTournament('Solo', 'upcoming', 5);
+  harness.domain.walletBalances.set(harness.user.userId, 1000);
+  const results = await Promise.all([
+    registerTournament(harness, tournament.id),
+    registerTournament(harness, tournament.id)
+  ]);
+  assert.deepEqual(results.map((result) => result.statusCode).sort(), [200, 201]);
+  assert.equal(harness.domain.registrations.size, 1);
+  assert.equal(harness.domain.walletBalances.get(harness.user.userId), 500);
+  assert.equal(harness.domain.walletWrites, 1);
+});
+
+test('paid cancellation refunds the original payer once through a separate ledger operation', async (context) => {
+  const harness = await createHarness(context);
+  const tournament = harness.domain.seedTournament('Solo', 'upcoming', 5);
+  harness.domain.walletBalances.set(harness.user.userId, 1000);
+  const registration = await registerTournament(harness, tournament.id);
+  assert.equal(registration.statusCode, 201);
+  assert.equal(harness.domain.walletBalances.get(harness.user.userId), 500);
+
+  const cancelled = await harness.app.inject({
+    method: 'DELETE', url: `/api/tournaments/${tournament.id}/register`, headers: jsonHeaders(harness.userCookie)
+  });
+  assert.equal(cancelled.statusCode, 200);
+  assert.equal(harness.domain.walletBalances.get(harness.user.userId), 1000);
+  assert.equal(harness.domain.walletWrites, 2);
+  const repeated = await harness.app.inject({
+    method: 'DELETE', url: `/api/tournaments/${tournament.id}/register`, headers: jsonHeaders(harness.userCookie)
+  });
+  assert.equal(repeated.statusCode, 404);
+  assert.equal(harness.domain.walletBalances.get(harness.user.userId), 1000);
+  assert.equal(harness.domain.walletWrites, 2);
 });
 
 test('Solo registration uses the authenticated player only', async (context) => {

@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type {
+  TransactionalWalletRepository,
   WalletCommand,
   WalletCommandResult,
   WalletDirection,
@@ -9,6 +10,7 @@ import type {
   WithdrawalRequestView
 } from './contracts.js';
 import { WalletError } from './contracts.js';
+import type { PoolClient } from 'pg';
 
 export const MAX_WALLET_AMOUNT_MINOR = 100_000_000;
 
@@ -58,6 +60,34 @@ export class WalletService {
     return this.post(userId, 'entry_fee', 'debit', input, actorUserId);
   }
 
+  async creditWithinTransaction(
+    client: PoolClient,
+    userId: string,
+    type: 'deposit' | 'winning' | 'refund' | 'adjustment',
+    input: WalletOperationInput,
+    actorUserId?: string
+  ): Promise<WalletCommandResult> {
+    return this.postWithinTransaction(client, userId, type, 'credit', input, actorUserId);
+  }
+
+  async tournamentEntryFeeWithinTransaction(
+    client: PoolClient,
+    userId: string,
+    input: WalletOperationInput,
+    actorUserId?: string
+  ): Promise<WalletCommandResult> {
+    return this.postWithinTransaction(client, userId, 'entry_fee', 'debit', input, actorUserId);
+  }
+
+  async refundWithinTransaction(
+    client: PoolClient,
+    userId: string,
+    input: WalletOperationInput,
+    actorUserId?: string
+  ): Promise<WalletCommandResult> {
+    return this.postWithinTransaction(client, userId, 'refund', 'credit', input, actorUserId);
+  }
+
   async requestWithdrawal(userId: string, input: WithdrawalInput): Promise<WithdrawalRequestView> {
     const command = this.buildCommand(userId, 'withdrawal', 'debit', input);
     return this.repository.requestWithdrawal(command);
@@ -65,6 +95,24 @@ export class WalletService {
 
   private async post(userId: string, type: WalletTransactionType, direction: WalletDirection, input: WalletOperationInput, actorUserId?: string): Promise<WalletCommandResult> {
     return this.repository.postTransaction(this.buildCommand(userId, type, direction, input, actorUserId));
+  }
+
+  private async postWithinTransaction(
+    client: PoolClient,
+    userId: string,
+    type: WalletTransactionType,
+    direction: WalletDirection,
+    input: WalletOperationInput,
+    actorUserId?: string
+  ): Promise<WalletCommandResult> {
+    if (!('postTransactionWithinTransaction' in this.repository)
+      || typeof this.repository.postTransactionWithinTransaction !== 'function') {
+      throw new WalletError(503, 'WALLET_TRANSACTION_UNAVAILABLE', 'Atomic wallet transactions are temporarily unavailable.');
+    }
+    return this.repository.postTransactionWithinTransaction(
+      client,
+      this.buildCommand(userId, type, direction, input, actorUserId)
+    );
   }
 
   private buildCommand(userId: string, type: WalletTransactionType, direction: WalletDirection, input: WalletOperationInput, actorUserId?: string): WalletCommand {

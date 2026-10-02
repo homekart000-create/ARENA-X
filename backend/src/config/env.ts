@@ -11,6 +11,10 @@ export interface AppConfig {
   readonly authCookieName: string;
   readonly sessionTtlSeconds: number;
   readonly roomCredentialsKey?: Buffer;
+  readonly razorpayWebhookSecret?: string;
+  readonly razorpayKeySecret?: string;
+  readonly razorpayKeyId?: string;
+  readonly paymentsMode: 'disabled' | 'sandbox';
 }
 
 export function parseEnvironment(environment: NodeJS.ProcessEnv): AppConfig {
@@ -75,6 +79,21 @@ export function parseEnvironment(environment: NodeJS.ProcessEnv): AppConfig {
     }
   }
 
+  const requestedPaymentsMode = environment.RAZORPAY_MODE ?? 'disabled';
+  if (requestedPaymentsMode !== 'disabled' && requestedPaymentsMode !== 'sandbox') {
+    throw new Error('RAZORPAY_MODE must be disabled or sandbox.');
+  }
+  const razorpayKeyId = environment.RAZORPAY_KEY_ID?.trim();
+  const razorpayWebhookSecret = environment.RAZORPAY_WEBHOOK_SECRET?.trim();
+  const razorpayKeySecret = environment.RAZORPAY_KEY_SECRET?.trim();
+  if (razorpayKeyId && !/^rzp_test_[A-Za-z0-9]+$/.test(razorpayKeyId)) {
+    throw new Error('RAZORPAY_KEY_ID must be a Razorpay test key.');
+  }
+  const paymentsMode = requestedPaymentsMode === 'sandbox'
+    && razorpayKeyId && razorpayKeySecret && razorpayWebhookSecret
+    ? 'sandbox'
+    : 'disabled';
+
   return {
     nodeEnv,
     host,
@@ -83,7 +102,11 @@ export function parseEnvironment(environment: NodeJS.ProcessEnv): AppConfig {
     corsOrigins,
     authCookieName,
     sessionTtlSeconds: sessionTtlHours * 60 * 60,
-    ...(roomCredentialsKey ? { roomCredentialsKey } : {})
+    ...(roomCredentialsKey ? { roomCredentialsKey } : {}),
+    ...(razorpayWebhookSecret ? { razorpayWebhookSecret } : {}),
+    ...(razorpayKeySecret ? { razorpayKeySecret } : {}),
+    ...(razorpayKeyId ? { razorpayKeyId } : {}),
+    paymentsMode
   };
 }
 

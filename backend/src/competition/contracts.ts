@@ -63,6 +63,7 @@ export interface RegistrationView {
   readonly memberIds: readonly string[];
   readonly registeredAt: string;
   readonly status: 'registered';
+  readonly replayed?: boolean;
 }
 
 export interface TeamMemberView {

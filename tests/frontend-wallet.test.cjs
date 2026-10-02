@@ -289,9 +289,11 @@ test('admin wallet totals and cross-user ledger remain explicitly unavailable, n
   assert.doesNotMatch(adminSource, /arenaX_wallets|arenaX_transactions/);
 });
 
-test('paid tournament registration is blocked until backend entry-fee settlement exists', () => {
+test('paid tournament registration checks backend wallet availability and submits to the authoritative API', () => {
   const source = fs.readFileSync(path.join(root, 'js/tournament-pages.js'), 'utf8');
-  assert.match(source, /paidEntryUnavailable = tournament\.entryFee > 0/);
-  assert.match(source, /paid tournament cannot accept registrations until entry-fee settlement is supported/);
-  assert.match(source, /if \(tournament\?\.entryFee > 0\)/);
+  assert.match(source, /ArenaApi\.request\('\/api\/wallet'\)/);
+  assert.match(source, /wallet\.availableBalanceMinor >= feeMinor/);
+  assert.match(source, /store\.joinTournament\(pendingJoinId/);
+  assert.match(source, /refreshWalletState\(\)/);
+  assert.doesNotMatch(source, /paidEntryUnavailable|Paid registration is unavailable until backend wallet settlement/);
 });

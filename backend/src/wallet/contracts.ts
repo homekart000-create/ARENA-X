@@ -73,9 +73,14 @@ export interface WalletRepository {
   requestWithdrawal(command: WalletCommand): Promise<WithdrawalRequestView>;
 }
 
+export interface TransactionalWalletRepository extends WalletRepository {
+  postTransactionWithinTransaction(client: PoolClient, command: WalletCommand): Promise<WalletCommandResult>;
+}
+
 export class WalletError extends Error {
   constructor(readonly statusCode: number, readonly code: string, message: string) {
     super(message);
     this.name = 'WalletError';
   }
 }
+import type { PoolClient } from 'pg';

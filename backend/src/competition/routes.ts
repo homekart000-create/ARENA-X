@@ -73,7 +73,7 @@ const tournamentInputProperties = {
   name: { type: 'string', minLength: 2, maxLength: 120 },
   game: { type: 'string', minLength: 2, maxLength: 60 },
   type: { type: 'string', enum: ['Solo', 'Duo', 'Squad'] },
-  entryFee: { type: 'number', minimum: 0, maximum: 100000000 },
+  entryFee: { type: 'number', minimum: 0, maximum: 1000000 },
   prizePool: { type: 'number', minimum: 0, maximum: 1000000000 },
   maxSlots: { type: 'integer', minimum: 1, maximum: 100000 },
   startsAt: { type: 'string', format: 'date-time' },
@@ -199,7 +199,7 @@ export function registerCompetitionRoutes(app: FastifyInstance, options: Competi
   }, async (request, reply) => {
     if (!originAllowed(config, request.headers.origin)) return forbidden(reply);
     const registration = await repository.registerForTournament(request.params.id, request.authUser!.userId, request.body.teamId);
-    return reply.code(201).send({ registration });
+    return reply.code(registration.replayed ? 200 : 201).send({ registration });
   });
 
   app.delete<{ Params: IdParams }>('/api/tournaments/:id/register', {
