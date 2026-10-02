@@ -350,6 +350,14 @@ export class PostgresWalletRepository implements TransactionalWalletRepository {
           replayed: true
         };
       }
+      const activeWithdrawal = await client.query(
+        `SELECT 1 FROM withdrawal_workflows
+         WHERE user_id=$1 AND status IN ('pending','approved','processing') LIMIT 1`,
+        [command.userId]
+      );
+      if (activeWithdrawal.rowCount) {
+        throw new WalletError(409, 'WITHDRAWAL_ALREADY_ACTIVE', 'A withdrawal request is already being reviewed or processed.');
+      }
       if (Number(wallet.available_balance_minor) < command.amountMinor) throw new WalletError(409, 'INSUFFICIENT_FUNDS', 'Available wallet balance is insufficient.');
       const accounts = await this.getAccounts(client, wallet.id, true);
       const reservedAccount = accounts.reserved;
@@ -367,6 +375,12 @@ export class PostgresWalletRepository implements TransactionalWalletRepository {
       );
       const requestId = request.rows[0]?.id;
       if (!requestId) throw new WalletError(503, 'SERVICE_UNAVAILABLE', 'Withdrawal request could not be created.');
+      await client.query(`INSERT INTO withdrawal_workflows
+        (withdrawal_request_id,user_id,current_transaction_id,status)
+        VALUES ($1,$2,$3,'pending')`, [requestId, command.userId, transactionId]);
+      await client.query(`INSERT INTO withdrawal_workflow_events
+        (withdrawal_request_id,actor_user_id,from_status,to_status,action)
+        VALUES ($1,$2,NULL,'pending','requested')`, [requestId, command.userId]);
       return {
         withdrawalRequestId: requestId,
         transaction: mapTransaction(await this.readTransaction(client, transactionId)),

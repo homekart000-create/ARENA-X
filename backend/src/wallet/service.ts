@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import type { KycRepository } from '../kyc/contracts.js';
 import type {
   TransactionalWalletRepository,
   WalletCommand,
@@ -30,7 +31,13 @@ export interface WithdrawalInput {
 }
 
 export class WalletService {
-  constructor(private readonly repository: WalletRepository) {}
+  constructor(
+    private readonly repository: WalletRepository,
+    private readonly kycRepository?: Pick<KycRepository, 'getByUserId'>,
+    private readonly requireVerifiedKyc = false,
+    private readonly minimumWithdrawalMinor = 1,
+    private readonly maximumWithdrawalMinor = MAX_WALLET_AMOUNT_MINOR
+  ) {}
 
   getWallet(userId: string): Promise<WalletView> {
     return this.repository.getWallet(userId);
@@ -89,7 +96,21 @@ export class WalletService {
   }
 
   async requestWithdrawal(userId: string, input: WithdrawalInput): Promise<WithdrawalRequestView> {
+    if (!Number.isSafeInteger(input.amountMinor)
+      || input.amountMinor < this.minimumWithdrawalMinor
+      || input.amountMinor > this.maximumWithdrawalMinor) {
+      throw new WalletError(400, 'INVALID_WITHDRAWAL_AMOUNT', 'Withdrawal amount is outside the configured integer-paise limits.');
+    }
     const command = this.buildCommand(userId, 'withdrawal', 'debit', input);
+    if (this.requireVerifiedKyc && !this.kycRepository) {
+      throw new WalletError(503, 'KYC_UNAVAILABLE', 'Withdrawal verification is temporarily unavailable.');
+    }
+    if (this.requireVerifiedKyc && this.kycRepository) {
+      const profile = await this.kycRepository.getByUserId(userId);
+      if (!profile || profile.status !== 'verified') {
+        throw new WalletError(403, 'KYC_REQUIRED', 'Withdrawal is unavailable until KYC has been verified.');
+      }
+    }
     return this.repository.requestWithdrawal(command);
   }
 

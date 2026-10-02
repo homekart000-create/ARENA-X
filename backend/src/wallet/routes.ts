@@ -62,7 +62,13 @@ export function registerWalletRoutes(app: FastifyInstance, options: WalletRouteO
     schema: {
       body: {
         type: 'object', additionalProperties: false, required: ['amountMinor'],
-        properties: { amountMinor: { type: 'integer', minimum: 1, maximum: MAX_WALLET_AMOUNT_MINOR } }
+        properties: {
+          amountMinor: {
+            type: 'integer',
+            minimum: config.minimumWithdrawalMinor,
+            maximum: Math.min(MAX_WALLET_AMOUNT_MINOR, config.maximumWithdrawalMinor)
+          }
+        }
       }
     }
   }, async (request, reply) => {

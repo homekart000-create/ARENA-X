@@ -111,6 +111,11 @@ class MemoryWalletRepository implements WalletRepository {
       if (replay.hash.length !== requestHash.length || !timingSafeEqual(replay.hash, requestHash)) throw new WalletError(409, 'IDEMPOTENCY_KEY_REUSED', 'This idempotency key was used for a different request.');
       return { wallet, transaction: replay.view, replayed: true };
     }
+    if (reserve && this.transactions.some((entry) =>
+      entry.view.userId === command.userId && entry.view.type === 'withdrawal' && entry.view.status === 'pending'
+    )) {
+      throw new WalletError(409, 'WITHDRAWAL_ALREADY_ACTIVE', 'A withdrawal request is already being reviewed or processed.');
+    }
     if (command.referenceId && this.referenceIds.has(command.referenceId)) throw new WalletError(409, 'DUPLICATE_TRANSACTION', 'This reference has already been processed.');
     if (command.direction === 'debit' && wallet.availableBalanceMinor < command.amountMinor) throw new WalletError(409, 'INSUFFICIENT_FUNDS', 'Available wallet balance is insufficient.');
 
@@ -399,6 +404,59 @@ test('withdrawal requests reserve available funds and remain pending', async (co
   assert.equal(replay.statusCode, 200);
   assert.equal(replay.json().withdrawal.replayed, true);
   assert.equal(replay.json().withdrawal.wallet.availableBalanceMinor, 1700);
+});
+
+test('withdrawal requires verified KYC and applies configured minimum and maximum', async (context) => {
+  const harness = await createWalletHarness(context);
+  await credit(harness, 5000);
+  let status = 'pending';
+  const kycRepository = {
+    async getByUserId(userId: string) {
+      return status === 'verified' ? {
+        userId, status: 'verified' as const, legalName: 'Test Player', country: 'India',
+        dateOfBirth: null, verificationReference: null, rejectionReason: null,
+        reviewedByUserId: 'admin', reviewedAt: new Date().toISOString(),
+        submittedAt: new Date().toISOString(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
+      } : {
+        userId, status: 'pending' as const, legalName: 'Test Player', country: 'India',
+        dateOfBirth: null, verificationReference: null, rejectionReason: null,
+        reviewedByUserId: null, reviewedAt: null, submittedAt: new Date().toISOString(),
+        createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
+      };
+    }
+  };
+  const service = new WalletService(harness.repository, kycRepository, true, 500, 3000);
+  await assert.rejects(
+    service.requestWithdrawal(harness.user.userId, { amountMinor: 700, idempotencyKey: key('kyc-pending') }),
+    (error: unknown) => error instanceof WalletError && error.code === 'KYC_REQUIRED'
+  );
+  status = 'verified';
+  await assert.rejects(
+    service.requestWithdrawal(harness.user.userId, { amountMinor: 499, idempotencyKey: key('under-min') }),
+    (error: unknown) => error instanceof WalletError && error.code === 'INVALID_WITHDRAWAL_AMOUNT'
+  );
+  await assert.rejects(
+    service.requestWithdrawal(harness.user.userId, { amountMinor: 3001, idempotencyKey: key('over-max') }),
+    (error: unknown) => error instanceof WalletError && error.code === 'INVALID_WITHDRAWAL_AMOUNT'
+  );
+  const withdrawal = await service.requestWithdrawal(harness.user.userId, {
+    amountMinor: 700, idempotencyKey: key('kyc-verified')
+  });
+  assert.equal(withdrawal.wallet.availableBalanceMinor, 4300);
+  assert.equal(withdrawal.wallet.reservedBalanceMinor, 700);
+});
+
+test('concurrent distinct withdrawal requests cannot create conflicting active holds', async (context) => {
+  const harness = await createWalletHarness(context);
+  await credit(harness, 3000);
+  const results = await Promise.allSettled([
+    harness.service.requestWithdrawal(harness.user.userId, { amountMinor: 500, idempotencyKey: key('concurrent-a') }),
+    harness.service.requestWithdrawal(harness.user.userId, { amountMinor: 500, idempotencyKey: key('concurrent-b') })
+  ]);
+  assert.equal(results.filter((result) => result.status === 'fulfilled').length, 1);
+  assert.equal(results.filter((result) => result.status === 'rejected').length, 1);
+  assert.equal((await harness.service.getWallet(harness.user.userId)).availableBalanceMinor, 2500);
+  assert.equal((await harness.service.getWallet(harness.user.userId)).reservedBalanceMinor, 500);
 });
 
 test('withdrawal requests are rate limited without duplicating idempotent requests', async (context) => {

@@ -81,17 +81,28 @@ All mutation endpoints require an exact allowlisted `Origin`; configure the GitH
 
 - `GET /api/wallet` returns only the authenticated user's INR wallet projection.
 - `GET /api/wallet/transactions` returns that user's newest-first history and supports bounded `limit`/`offset` plus type/status filters.
-- `POST /api/wallet/withdrawal-requests` accepts `amountMinor` and an `Idempotency-Key` header; it creates a pending hold only.
+- `POST /api/wallet/withdrawal-requests` accepts `amountMinor` and an `Idempotency-Key` header; it creates a pending hold after server-side eligibility checks.
 
 Money is integer paise throughout the API and database (`100 paise = INR 1`). For example, INR 12.34 is `amountMinor: 1234`. Wallet reads return `availableBalanceMinor`, `reservedBalanceMinor`, and integer total fields; client-supplied balances are never accepted. Transaction amounts are positive integer minor units; direction determines credit or debit.
 
 Internal `WalletService` operations cover deposit-credit recording, adjustment, winning, refund, and tournament entry-fee debit. They are not exposed as arbitrary HTTP balance-mutation endpoints. Each operation requires an idempotency key, locks the wallet row, writes immutable transaction facts, a status event, balanced signed ledger entries, and the cached projection in one PostgreSQL transaction. Replays with the same key/payload return the prior transaction; reuse with a different payload conflicts. A deferred database constraint verifies that each transaction's ledger postings sum to zero, and append-only triggers prevent edits/deletes to transaction facts, events, and entries.
 
-Withdrawal requests reduce available funds and move the same amount to reserved funds atomically; the transaction remains `pending`. This prevents re-spending held funds. There is no approval/settlement endpoint yet, and no bank, UPI, payment gateway, deposit collection, or external payout is performed. No wallet admin or arbitrary adjustment API is exposed.
+Withdrawal requests reduce available funds and move the same amount to reserved funds atomically. The workflow has controlled pending/approved/processing/paid/failed/rejected/cancelled states. Admin review and payout results use balanced append-only ledger postings to settle the reserved amount or release it; they never overwrite wallet balances. Payout retries use durable attempt IDs and idempotency keys, while ambiguous results stay reserved for reconciliation.
+
+## KYC and review APIs
+
+- `GET /api/kyc` reports the authenticated user's profile or `unverified`; `POST`/`PATCH /api/kyc` submit/update their own profile.
+- `GET /api/admin/kyc`, `GET /api/admin/kyc/:userId`, and `GET /api/admin/kyc/:userId/audit` are admin-only. `POST /api/admin/kyc/:userId/review` handles admin decisions and stores reviewer, time, reason, and append-only audit records.
+- KYC transitions are `unverified -> pending -> verified/rejected`, `verified -> suspended`, `rejected -> pending`, and `suspended -> verified/pending`. Client status/reviewer/provider-verification fields are rejected.
+- Admin withdrawal endpoints are `GET /api/admin/withdrawals`, `GET /api/admin/withdrawals/:withdrawalRequestId`, and POST approve/reject/retry/reconcile actions. Owners can list/view their requests and cancel only pending/approved ones. User detail is owner-scoped.
+- Production requires verified KYC for withdrawals. `WITHDRAWAL_KYC_REQUIRED` cannot be disabled in production; configurable minimum/maximum values are integer paise and capped by the existing wallet maximum.
+- Payout provider contracts support create/status/reconcile/webhook verification, but runtime currently injects an unavailable provider. No real bank/UPI/provider payout is performed or represented as successful.
+- Mutation and webhook limits are process-local, matching the existing Fastify rate limiter; deployments with multiple API instances need a shared store.
+- This is infrastructure only, not a claim of compliance with gaming, KYC, AML, tax, RBI, payment-provider, or other legal/regulatory requirements.
 
 ## Tests
 
-Run the API tests with `npm test`. Tests use isolated in-memory repositories and exercise the actual Fastify routes and wallet service without connecting to or modifying a PostgreSQL database. They cover authentication, tournament/team/match behavior, mode sizes, wallet idempotency, atomic failure behavior, concurrent debits, history, and withdrawal holds. They do not verify SQL execution, true multi-connection PostgreSQL concurrency, or migration compatibility against live PostgreSQL; those integration checks remain **NOT RUN** until a test `DATABASE_URL` is configured.
+Run the API tests with `npm test`. Tests exercise Fastify routes and in-memory/scripted repositories without connecting to or modifying a PostgreSQL database. They do not verify SQL execution, true multi-connection PostgreSQL concurrency, or migration compatibility against live PostgreSQL; those integration checks remain **NOT RUN** until a test `DATABASE_URL` is configured.
 
 ## Build and start
 
@@ -105,5 +116,6 @@ npm run start
 
 - No localStorage users, tournaments, teams, invitations, matches, or sessions have been imported; the existing frontend remains a local demo and is not connected to these endpoints.
 - Password reset, email verification, session refresh, CSRF tokens, account administration, and distributed rate limiting are not implemented.
-- Real deposits, payment providers, withdrawals/payout settlement, withdrawal review APIs, KYC, reconciliation jobs, and wallet admin APIs are not implemented.
+- No live payout adapter, payout destination/bank/UPI storage, unattended reconciliation worker, or frontend KYC/withdrawal flow is implemented. No payout webhook is enabled in runtime configuration.
+- KYC and payout behavior must receive external legal, provider, operational, and data-retention review before any production payout use.
 - Production deployment still requires HTTPS, a managed secret/database configuration, operational monitoring, and a PostgreSQL migration rehearsal.

@@ -2,8 +2,16 @@ import Fastify from 'fastify';
 import cookie from '@fastify/cookie';
 import rateLimit from '@fastify/rate-limit';
 import type { AuthRepository } from './auth/contracts.js';
-import { createOptionalAuth, createRequireAuth } from './auth/middleware.js';
+import { createOptionalAuth, createRequireAuth, requireAdmin } from './auth/middleware.js';
 import { registerAuthRoutes } from './auth/routes.js';
+import { KycError, type KycRepository } from './kyc/contracts.js';
+import { InMemoryKycRepository } from './kyc/in-memory-repository.js';
+import { registerKycRoutes } from './kyc/routes.js';
+import { PayoutError, type PayoutProvider, type PayoutRepository } from './payouts/contracts.js';
+import { UnavailablePayoutProvider } from './payouts/provider.js';
+import { registerPayoutRoutes } from './payouts/routes.js';
+import { PayoutService } from './payouts/service.js';
+import { UnavailablePayoutRepository } from './payouts/unavailable-repository.js';
 import { registerUserRoutes } from './users/routes.js';
 import type { CompetitionRepository } from './competition/contracts.js';
 import { CompetitionError } from './competition/contracts.js';
@@ -30,7 +38,10 @@ export function buildApp(
   competitionRepository: CompetitionRepository = new UnavailableCompetitionRepository(),
   walletRepository: WalletRepository = new UnavailableWalletRepository(),
   paymentRepository: PaymentRepository = new UnavailablePaymentRepository(),
-  paymentProvider?: PaymentProvider
+  paymentProvider?: PaymentProvider,
+  kycRepository: KycRepository = new InMemoryKycRepository(),
+  payoutRepository: PayoutRepository = new UnavailablePayoutRepository(),
+  payoutProvider: PayoutProvider = new UnavailablePayoutProvider()
 ) {
   const app = Fastify({
     logger: config.nodeEnv !== 'test',
@@ -44,7 +55,7 @@ export function buildApp(
   app.setErrorHandler((error, request, reply) => {
     const statusCode = typeof error === 'object' && error !== null && 'statusCode' in error &&
       typeof error.statusCode === 'number' ? error.statusCode : undefined;
-    const response = error instanceof CompetitionError || error instanceof WalletError || error instanceof PaymentError
+    const response = error instanceof CompetitionError || error instanceof WalletError || error instanceof PaymentError || error instanceof KycError || error instanceof PayoutError
       ? { status: error.statusCode, code: error.code, message: error.message }
       : statusCode === 400
       ? { status: 400, code: 'BAD_REQUEST', message: 'Request could not be processed.' }
@@ -88,11 +99,17 @@ export function buildApp(
   app.register(async (routesApp) => {
     registerAuthRoutes(routesApp, { config, repository: authRepository, requireAuth });
     registerUserRoutes(routesApp, { requireAuth });
+    registerKycRoutes(routesApp, { repository: kycRepository, config, requireAuth, requireAdmin });
     registerCompetitionRoutes(routesApp, { config, repository: competitionRepository, requireAuth, optionalAuth });
-    registerWalletRoutes(routesApp, { config, service: new WalletService(walletRepository), requireAuth });
+    registerWalletRoutes(routesApp, {
+      config,
+      service: new WalletService(walletRepository, kycRepository, config.withdrawalKycRequired,
+        config.minimumWithdrawalMinor, config.maximumWithdrawalMinor),
+      requireAuth
+    });
     routesApp.register(async (paymentsApp) => {
       paymentsApp.addContentTypeParser('application/json', { parseAs: 'buffer' }, (request, body, done) => {
-        if (request.url.startsWith('/api/payments/webhooks/')) {
+        if (request.url.startsWith('/api/payments/webhooks/') || request.url.startsWith('/api/payouts/webhooks/')) {
           done(null, body);
           return;
         }
@@ -103,7 +120,7 @@ export function buildApp(
         }
       });
       paymentsApp.addContentTypeParser('application/*+json', { parseAs: 'buffer' }, (request, body, done) => {
-        if (request.url.startsWith('/api/payments/webhooks/')) {
+        if (request.url.startsWith('/api/payments/webhooks/') || request.url.startsWith('/api/payouts/webhooks/')) {
           done(null, body);
           return;
         }
@@ -123,6 +140,13 @@ export function buildApp(
           ...(config.razorpayWebhookSecret ? { webhookSecret: config.razorpayWebhookSecret } : {})
         }),
         requireAuth
+      });
+      registerPayoutRoutes(paymentsApp, {
+        config,
+        service: new PayoutService(payoutRepository, payoutProvider),
+        provider: payoutProvider,
+        requireAuth,
+        requireAdmin
       });
     });
   });

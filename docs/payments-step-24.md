@@ -1,15 +1,18 @@
-# Payments — Steps 24A–24C
+# Payments, Wallet, KYC and Payouts — Steps 24A–24D
 
 ## Current status
 
 - **IMPLEMENTED (24A):** provider-neutral payment contracts, integer-paise payment records, database persistence, idempotency, webhook-event storage, authenticated API boundaries, and an explicit state machine.
 - **IMPLEMENTED (24B):** isolated Razorpay sandbox adapter, safe order creation, owner-scoped payment verification, raw-body webhook signature verification, provider-side payment fact checks, and replay/conflict handling.
 - **IMPLEMENTED (24C):** verified payment settlement into the immutable wallet ledger, atomic paid tournament entry-fee debit and registration, idempotent paid-registration retries, and a transactional cancellation refund path for the original payer.
-- **TESTED:** backend suite: **93 passed**; frontend auth: **14 passed**; competition: **15 passed**; wallet: **9 passed**. Typecheck, backend build, JavaScript syntax checks, `git diff --check`, and backend `npm audit` are verified for this worktree.
-- **NOT VERIFIED:** no live PostgreSQL database is configured. The 24C migration/repository transaction SQL and row-lock behavior have scripted tests but have not been integration-tested against PostgreSQL. No Razorpay sandbox credentials are configured, so no live sandbox order, payment, or webhook was exercised.
-- **DEFERRED:** frontend payment checkout, production payment activation, KYC, withdrawals/payout settlement, bank/UPI settlement, tournament prize distribution, and later Step 24 phases.
+- **IMPLEMENTED (24D):** KYC submission/admin review with database audit records, production KYC withdrawal gate and configurable amount bounds, withdrawal workflow/admin APIs, payout abstraction with an unavailable runtime adapter, idempotent payout attempts, reconciliation, HMAC webhook verification, and wallet-ledger settlement/release paths.
+- **TESTED:** Step 24D KYC/payout tests exercise route authorization, ownership, transitions, replay/conflict handling, ambiguous results, and hold/settlement/release effects. The full regression and tooling results are recorded below.
+- **NOT VERIFIED:** PostgreSQL is not configured in this environment, so migrations 006–007 and Postgres transaction/locking behavior have not been exercised against a live database. The configured runtime payout adapter is unavailable; no live payout was attempted.
+- **DEFERRED:** frontend payment/withdrawal UI, live payout-provider integration, bank/UPI destination handling, tournament prize distribution, and later Step 24 phases.
 
 Real-money charging remains disabled. The Razorpay adapter accepts only sandbox configuration with a test key ID. No production payment credentials are included. Paid tournament registration is enabled against the existing wallet ledger; it does not charge an external payment method.
+
+Step 24D does not claim legal or regulatory compliance. KYC scope, provider selection, destination-account handling, retention, tax, AML, gaming, RBI, payment-provider, and jurisdiction-specific requirements still need external legal/provider verification before production use.
 
 ## Architecture and trust boundaries
 
@@ -76,6 +79,76 @@ Provider order creation failure is recorded as terminal `failed` to avoid blind 
 - Paid cancellation credits the original payer using a deterministic registration refund key and relates the refund to the original fee transaction. The refund ledger row and cancelled registration/refund reference are committed together. Repeating cancellation after commit does not refund again.
 - Provider/network failure can still leave an externally created order whose response was lost before durable association. The internal UUID is sent as provider receipt/reference. Production requires provider-side idempotency guarantees and operational reconciliation.
 
+## Step 24D — KYC, withdrawals and payout foundation
+
+### KYC data and status control
+
+KYC stores a minimum profile (legal name, optional date of birth/country, provider reference metadata) and does not accept document contents. The user endpoints derive ownership exclusively from the authenticated session:
+
+- `GET /api/kyc` reports the caller's own profile or a synthetic `unverified` state.
+- `POST /api/kyc` and `PATCH /api/kyc` submit/update only profile fields. Client-supplied status, reviewer, verification decision, and provider reference are rejected.
+- `GET /api/admin/kyc`, `GET /api/admin/kyc/:userId`, and `GET /api/admin/kyc/:userId/audit` require an authenticated admin role. List responses omit legal name/date of birth/provider reference; detail and audit are no-store.
+- `POST /api/admin/kyc/:userId/review` is admin-only, exact-Origin checked, rate-limited, and requires a reason for rejection. Reviewer ID/time and action/reason are persisted transactionally with an append-only audit event.
+
+The application and migration enforce:
+
+| Current state | Allowed next states |
+| --- | --- |
+| `unverified` | `pending` |
+| `pending` | `verified`, `rejected` |
+| `verified` | `suspended` |
+| `rejected` | `pending` |
+| `suspended` | `verified`, `pending` |
+
+Users cannot approve themselves or edit a verified/suspended record. Rejected users may submit a new application; this returns the state to `pending`. `unverified` is represented without requiring an empty database row.
+
+### Withdrawal eligibility and wallet behavior
+
+`POST /api/wallet/withdrawal-requests` remains authenticated, exact-Origin checked, and idempotent. The backend validates integer paise, configured inclusive minimum/maximum, current session/account status, active wallet status, available balance, and (when enabled) a persisted `verified` KYC status. Production defaults to KYC-required and refuses `WITHDRAWAL_KYC_REQUIRED=false`. Replays of the same idempotency key/payload return the existing request; changed payloads conflict. Only one pending/approved/processing withdrawal per wallet may be open.
+
+The initial withdrawal keeps the existing wallet-ledger hold behavior: available decreases and reserved increases in one transaction; a balanced `hold` posting is appended. A paid payout appends balanced reserved-to-clearing `settlement` entries and reduces reserved projection. A provider-confirmed failed payout, admin rejection, or owner cancellation appends `release` entries and returns reserved value to available. A retry after confirmed failure creates a new internal wallet transaction and hold; it checks current available balance. No wallet balance is overwritten or changed outside the existing transactional ledger path.
+
+Owner-only routes expose the caller's withdrawal list/detail and permit cancellation only while pending or approved. Detail lookup is owner-filtered and returns 404 for another user's ID.
+
+### Withdrawal workflow and admin endpoints
+
+`GET /api/admin/withdrawals`, `GET /api/admin/withdrawals/:withdrawalRequestId`, and the following mutations require admin authorization:
+
+- `POST .../:withdrawalRequestId/approve` — pending to approved.
+- `POST .../:withdrawalRequestId/reject` — pending to rejected, requires reason, releases the hold.
+- `POST .../:withdrawalRequestId/retry` — starts an approved payout, or retries a definitively failed attempt with a new hold/attempt number.
+- `POST .../:withdrawalRequestId/reconcile` — queries an in-flight provider attempt; it never creates another payout.
+
+All mutations require exact allowed Origin, are rate-limited, and write append-only workflow audit events with the actor, action, state, and relevant reason. The database and service enforce:
+
+| Current state | Allowed next states |
+| --- | --- |
+| `pending` | `approved`, `rejected`, `cancelled` |
+| `approved` | `processing`, `rejected`, `cancelled` |
+| `processing` | `paid`, `failed` |
+| `failed` | `processing` (explicit retry only; fresh hold and payout attempt) |
+| `paid`, `rejected`, `cancelled` | none |
+
+An owner can cancel a pending/approved withdrawal. A processing payout cannot be cancelled until provider outcome is resolved. Failed is retryable only through the admin retry action; each attempt has its own persisted idempotency key. Paid/rejected/cancelled are terminal.
+
+### Payout abstraction, ambiguity and webhooks
+
+The provider-neutral `PayoutProvider` contract defines create, status lookup, reconciliation, and signed webhook verification. `HmacPayoutProvider` accepts provider-specific callback implementations and verifies HMAC-SHA256 over exact raw bytes with timing-safe comparison. No provider API or provider behavior is invented here. Server startup always uses `UnavailablePayoutProvider`; no payout credentials or live adapter are configured. Admin approve/review can proceed, but payout retry/reconciliation/webhook operations return an explicit unavailable response rather than success.
+
+Before any external create call, a stable attempt row is committed using the internal withdrawal ID, attempt number, and provider idempotency key. Repeated admin calls cannot create another attempt while processing. If create/reconcile throws or its result is ambiguous, the attempt is marked `unknown`, the withdrawal remains `processing`, funds remain reserved, and only reconciliation may continue it. A new payout call is permitted only after a definitive failure, with a new attempt key. Provider references are unique per provider. Terminal success/failure requires provider amount/currency to match the internal INR request; mismatches remain in reconciliation. This is safe only when a future provider honors the supplied idempotency key and offers authoritative status lookup.
+
+`POST /api/payouts/webhooks/:provider` accepts raw JSON only, checks the configured provider adapter's HMAC, persists an event digest under unique `(provider, provider_event_id)`, and processes it idempotently. Same-ID/same-digest replay is harmless; same ID/different digest conflicts. An out-of-order event for a superseded/terminal attempt is recorded but cannot alter the current withdrawal. Terminal events with mismatched amount/currency are recorded for reconciliation without releasing or settling the hold. The endpoint is not usable with the current unavailable runtime adapter.
+
+### Configuration, limits and deployment state
+
+`backend/.env.example` documents `WITHDRAWAL_KYC_REQUIRED`, `MINIMUM_WITHDRAWAL_MINOR`, `MAXIMUM_WITHDRAWAL_MINOR`, and `PAYOUT_MODE=disabled`. Amount limits are integer paise; the maximum cannot exceed the existing 100,000,000-paise wallet cap. Production forces KYC on; malformed limits, booleans, and non-disabled payout modes fail startup. There is no payout webhook secret in the example because no runtime payout adapter/webhook secret is configured.
+
+Rate limits use the existing process-local Fastify limiter: KYC submit/update 3 per 15 minutes; withdrawal create and owner cancel 5 per 15 minutes; KYC review and approve/reject 10 per 15 minutes; payout retry 5 per 15 minutes; payout reconcile 10 per 15 minutes; payout webhook ingress 120 per minute. Multi-instance deployments need a shared limiter store before relying on aggregate limits.
+
+Migration `006_create_kyc_tables.cjs` adds KYC profiles and decisions. Migration `007_withdrawal_payout_workflows.cjs` adds KYC transition/audit protections, backfills existing withdrawal requests, and adds workflow, payout-attempt, and provider-event tables, uniqueness/ownership constraints, and database transition triggers. Neither migration has been run in this environment; run them only against a reviewed target database and verify operational backup/rollback policy first.
+
+No statements here establish compliance with Indian gaming, KYC, AML, tax, RBI, payment-provider, data-protection, or other laws. Product eligibility, document minimization, retention/deletion, age/identity rules, payout destination controls, limits, tax reporting, sanctions screening, and provider contracts require qualified external verification and configuration.
+
 ## Frontend and wallet status
 
 - **IMPLEMENTED:** paid tournament registration preflights the authenticated backend wallet endpoint and displays the available integer-paise balance and insufficient/unavailable states. This is informational only; the backend transaction remains authoritative and can still reject a stale balance.
@@ -85,14 +158,15 @@ Provider order creation failure is recorded as terminal `failed` to avoid blind 
 
 ## Verification record
 
-**TESTED:** 93 backend tests pass, including provider, wallet, paid registration, payment settlement, rollback, replay, insufficient-funds, free-entry, and cancellation-refund cases. The scripted PostgreSQL repository tests assert that ledger writes and their domain state changes share a transaction and are rolled back together; they are not a substitute for live PostgreSQL concurrency testing.
+**TESTED:** 109 backend tests pass, including auth, competition, wallet, paid registration, payment settlement, KYC review/ownership, withdrawal state and ledger effects, payout idempotency/replay/reconciliation, rollback, insufficient-funds, and cancellation-refund cases. The scripted PostgreSQL repository tests assert that ledger writes and their domain state changes share a transaction and are rolled back together; they are not a substitute for live PostgreSQL concurrency testing.
 
-**TESTED:** frontend regression suites pass: auth **14**, competition **15**, wallet **9**. Backend TypeScript typecheck and build pass. Modified JavaScript/migration syntax checks and `git diff --check` pass. Backend `npm audit` reports **0 vulnerabilities**.
+**TESTED:** frontend regression suites pass: auth **14**, competition **15**, wallet **9** (**38 total**). Backend TypeScript typecheck and production build pass. JavaScript/migration syntax checks pass for **18 files**; `git diff --check` passes. Backend `npm audit` reports **0 vulnerabilities**.
 
-**NOT VERIFIED:** live Razorpay sandbox order/payment/webhook flow (sandbox credentials absent); migration/repository operation against PostgreSQL (database configuration absent); multi-process/database concurrency behavior in a deployed environment.
+**NOT VERIFIED:** live Razorpay sandbox order/payment/webhook flow (sandbox credentials absent); migrations 006–007 and repository operation against PostgreSQL (`DATABASE_URL` is not configured); multi-process/database concurrency behavior in a deployed environment. No live payout-provider integration or payout capability is configured or claimed.
 
 ## Remaining phases and deployment dependencies
 
-- **DEFERRED — 24D/24E:** not started; no later Step 24 work is included here.
-- **DEFERRED:** production payment activation, KYC, withdrawals/payout settlement, bank/UPI settlement, and tournament winnings distribution.
+- **COMPLETE — 24D:** KYC review, withdrawal lifecycle, ledger reservation/settlement/release, and the provider-neutral payout foundation are implemented. The runtime payout adapter is unavailable; live payouts are not supported.
+- **NOT STARTED — 24E:** no later Step 24 work is included here.
+- **DEFERRED:** live payout-provider integration and payout destination onboarding, frontend KYC/withdrawal UI, production payment activation, bank/UPI settlement, and tournament winnings distribution.
 - **DEPLOYMENT-DEPENDENT / NOT VERIFIED:** production provider configuration, webhook registration, HTTPS/proxy setup, database migration execution, monitoring, reconciliation operations, and legal/security approval.

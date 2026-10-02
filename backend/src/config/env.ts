@@ -15,6 +15,10 @@ export interface AppConfig {
   readonly razorpayKeySecret?: string;
   readonly razorpayKeyId?: string;
   readonly paymentsMode: 'disabled' | 'sandbox';
+  readonly payoutMode: 'disabled';
+  readonly withdrawalKycRequired: boolean;
+  readonly minimumWithdrawalMinor: number;
+  readonly maximumWithdrawalMinor: number;
 }
 
 export function parseEnvironment(environment: NodeJS.ProcessEnv): AppConfig {
@@ -94,6 +98,26 @@ export function parseEnvironment(environment: NodeJS.ProcessEnv): AppConfig {
     ? 'sandbox'
     : 'disabled';
 
+  const payoutMode = environment.PAYOUT_MODE ?? 'disabled';
+  if (payoutMode !== 'disabled') {
+    throw new Error('PAYOUT_MODE must be disabled; no live payout adapter is configured.');
+  }
+  const withdrawalKycRequiredValue = environment.WITHDRAWAL_KYC_REQUIRED;
+  if (withdrawalKycRequiredValue !== undefined && withdrawalKycRequiredValue !== 'true' && withdrawalKycRequiredValue !== 'false') {
+    throw new Error('WITHDRAWAL_KYC_REQUIRED must be true or false.');
+  }
+  if (nodeEnv === 'production' && withdrawalKycRequiredValue === 'false') {
+    throw new Error('WITHDRAWAL_KYC_REQUIRED cannot be false in production.');
+  }
+  const withdrawalKycRequired = nodeEnv === 'production' || withdrawalKycRequiredValue === 'true';
+  const minimumWithdrawalMinor = Number(environment.MINIMUM_WITHDRAWAL_MINOR ?? '1');
+  const maximumWithdrawalMinor = Number(environment.MAXIMUM_WITHDRAWAL_MINOR ?? '100000000');
+  if (!Number.isSafeInteger(minimumWithdrawalMinor) || minimumWithdrawalMinor < 1
+    || !Number.isSafeInteger(maximumWithdrawalMinor) || maximumWithdrawalMinor < minimumWithdrawalMinor
+    || maximumWithdrawalMinor > 100_000_000) {
+    throw new Error('Withdrawal minimum and maximum must be whole paise with 1 <= minimum <= maximum <= 100000000.');
+  }
+
   return {
     nodeEnv,
     host,
@@ -106,7 +130,11 @@ export function parseEnvironment(environment: NodeJS.ProcessEnv): AppConfig {
     ...(razorpayWebhookSecret ? { razorpayWebhookSecret } : {}),
     ...(razorpayKeySecret ? { razorpayKeySecret } : {}),
     ...(razorpayKeyId ? { razorpayKeyId } : {}),
-    paymentsMode
+    paymentsMode,
+    payoutMode,
+    withdrawalKycRequired,
+    minimumWithdrawalMinor,
+    maximumWithdrawalMinor
   };
 }
 

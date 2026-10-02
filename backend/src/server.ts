@@ -9,6 +9,11 @@ import { UnavailableWalletRepository } from './wallet/unavailable-repository.js'
 import { WalletService } from './wallet/service.js';
 import { PostgresPaymentRepository } from './payments/postgres-repository.js';
 import { UnavailablePaymentRepository } from './payments/unavailable-repository.js';
+import { PostgresKycRepository } from './kyc/postgres-repository.js';
+import { UnavailableKycRepository } from './kyc/unavailable-repository.js';
+import { PostgresPayoutRepository } from './payouts/postgres-repository.js';
+import { UnavailablePayoutRepository } from './payouts/unavailable-repository.js';
+import { UnavailablePayoutProvider } from './payouts/provider.js';
 import { Pool } from 'pg';
 
 const databaseConfig = getDatabaseConfig(config);
@@ -18,7 +23,10 @@ const walletRepository = pool ? new PostgresWalletRepository(pool) : new Unavail
 const walletService = new WalletService(walletRepository);
 const competitionRepository = pool ? new PostgresCompetitionRepository(pool, walletService) : new UnavailableCompetitionRepository();
 const paymentRepository = pool ? new PostgresPaymentRepository(pool, walletService) : new UnavailablePaymentRepository();
-const app = buildApp(config, repository, competitionRepository, walletRepository, paymentRepository);
+const kycRepository = pool ? new PostgresKycRepository(pool) : new UnavailableKycRepository();
+const payoutRepository = pool ? new PostgresPayoutRepository(pool) : new UnavailablePayoutRepository();
+const app = buildApp(config, repository, competitionRepository, walletRepository, paymentRepository, undefined,
+  kycRepository, payoutRepository, new UnavailablePayoutProvider());
 
 if (pool) {
   app.addHook('onClose', async () => pool.end());
