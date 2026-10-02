@@ -186,6 +186,69 @@ test('tournament registration and cancellation use authenticated API routes with
   assert.equal(harness.calls.some((call) => call.url === `/api/tournaments/${tournamentId}/register` && call.options.method === 'DELETE'), true);
 });
 
+test('Solo, Duo, and Squad registration requests use the backend team contract without imposing frontend roster limits', async () => {
+  for (const type of ['Solo', 'Duo', 'Squad']) {
+    const harness = createCompetitionHarness(async (call) => {
+      if (call.url === '/api/tournaments') return { tournaments: [backendTournament({ type })] };
+      if (call.url === `/api/tournaments/${tournamentId}/register` && call.options.method === 'POST') {
+        return { registration: { registrationId: `registration-${type}`, tournamentId, userId, teamId: type === 'Solo' ? null : teamId, memberIds: [userId], registeredAt: '2026-10-01T00:00:00.000Z', status: 'registered' } };
+      }
+      return baseHandler(call);
+    });
+    await ready(harness.stores);
+    const result = await harness.stores.tournaments.joinTournament(tournamentId, type === 'Solo' ? {} : { teamId });
+    assert.equal(result.success, true, type);
+    const registration = harness.calls.find((call) => call.url.endsWith('/register') && call.options.method === 'POST');
+    assert.deepEqual(body(registration), type === 'Solo' ? {} : { teamId }, type);
+  }
+
+  const fiveMemberTeam = backendTeam({
+    members: Array.from({ length: 5 }, (_, index) => ({
+      userId: index === 0 ? userId : `member-${index}`,
+      username: `player-${index}`,
+      fullName: `Player ${index}`,
+      avatar: null,
+      role: index === 0 ? 'CAPTAIN' : 'MEMBER',
+      joinedAt: '2026-09-01T00:00:00.000Z'
+    }))
+  });
+  const harness = createCompetitionHarness(async (call) => {
+    if (call.url === `/api/teams/${teamId}`) return { team: fiveMemberTeam };
+    return baseHandler(call);
+  });
+  await ready(harness.stores);
+  assert.equal((await harness.stores.teams.loadTeam(teamId)).members.length, 5);
+});
+
+test('registration conflict and capacity errors remain visible and never fall back to legacy records', async () => {
+  const harness = createCompetitionHarness(async (call) => {
+    if (call.url === `/api/tournaments/${tournamentId}/register` && call.options.method === 'POST') {
+      throw Object.assign(new Error('safe conflict'), { code: 'DUPLICATE_REGISTRATION', message: 'You are already registered.' });
+    }
+    return baseHandler(call);
+  }, {
+    localStorage: { 'arenaX_participants': JSON.stringify([{ tournamentId, userId, status: 'registered' }]) }
+  });
+  await ready(harness.stores);
+  const result = await harness.stores.tournaments.joinTournament(tournamentId, { teamId });
+  assert.equal(result.success, false);
+  assert.equal(result.reason, 'DUPLICATE_REGISTRATION');
+  assert.equal(result.message, 'You are already registered.');
+  assert.equal(harness.localWrites.length, 0);
+
+  const fullHarness = createCompetitionHarness(async (call) => {
+    if (call.url === `/api/tournaments/${tournamentId}/register` && call.options.method === 'POST') {
+      throw Object.assign(new Error('safe capacity error'), { code: 'TOURNAMENT_FULL', message: 'This tournament is full.' });
+    }
+    return baseHandler(call);
+  });
+  await ready(fullHarness.stores);
+  const fullResult = await fullHarness.stores.tournaments.joinTournament(tournamentId, { teamId });
+  assert.equal(fullResult.success, false);
+  assert.equal(fullResult.reason, 'TOURNAMENT_FULL');
+  assert.equal(fullResult.message, 'This tournament is full.');
+});
+
 test('team create, detail, update, member changes, and invitation responses use backend contracts', async () => {
   const harness = createCompetitionHarness(baseHandler, { teamHint: teamId });
   await ready(harness.stores);
@@ -234,6 +297,22 @@ test('admin match projections preserve room visibility without exposing credenti
   assert.equal(match.roomVisible, true);
   assert.equal(match.roomId, '');
   assert.equal(match.roomPassword, '');
+});
+
+test('admin match table retains the backend participant count', () => {
+  const sandbox = {
+    ArenaAuth: { isAdmin: () => true },
+    ArenaTournaments: { getTournamentById: () => ({ name: 'Backend Cup' }) },
+    ArenaTeams: {},
+    ArenaMatches: {
+      getAdminMatches: () => [backendMatch({ participantCount: 7 })],
+      getMatchParticipants: () => ({ registrations: [] })
+    },
+    localStorage: { getItem: () => null }
+  };
+  sandbox.globalThis = sandbox;
+  vm.runInNewContext(fs.readFileSync(path.join(root, 'js/admin.js'), 'utf8'), sandbox, { filename: 'js/admin.js' });
+  assert.equal(sandbox.ArenaAdmin.getMatches()[0].participantCount, 7);
 });
 
 test('match updates convert form capacity and dates to the Step 20 patch contract', async () => {
@@ -353,4 +432,10 @@ test('migrated pages load the API stores in order; PWA and notification page rem
   assert.doesNotMatch(notifications, /js\/competition-api\.js/);
   assert.match(notifications, /js\/notifications\.js/);
   assert.match(fs.readFileSync(path.join(root, 'service-worker.js'), 'utf8'), /addEventListener\('fetch'/);
+  assert.match(fs.readFileSync(path.join(root, 'matches.html'), 'utf8'), /Only authorized admins can manage matches/);
+  assert.match(fs.readFileSync(path.join(root, 'js/app.js'), 'utf8'), /querySelector\('#toast-region, \.toast-region'\)/);
+  for (const legacy of ['js/tournaments.js', 'js/teams.js', 'js/matches.js']) {
+    assert.match(fs.readFileSync(path.join(root, legacy), 'utf8'), /if \(globalThis\.ArenaCompetitionBackend\) return;/);
+  }
+  assert.match(fs.readFileSync(path.join(root, 'js/app.js'), 'utf8'), /ARENA X EVENT/);
 });

@@ -4,8 +4,6 @@
   const tournaments = globalThis.ArenaTournaments;
   const teams = globalThis.ArenaTeams;
   const matches = globalThis.ArenaMatches;
-  const transactionTypes = new Set(['deposit', 'winning', 'refund', 'adjustment', 'withdrawal', 'entry_fee']);
-  const transactionStatuses = new Set(['completed', 'pending', 'failed']);
   if (!auth || !tournaments || !teams || !matches) return;
 
   function isAuthorized() {
@@ -21,17 +19,6 @@
     } catch {
       return { items: [], valid: false };
     }
-  }
-
-  function isValidTransaction(transaction) {
-    const amount = Number(transaction?.amount);
-    return Boolean(transaction && typeof transaction === 'object' && !Array.isArray(transaction)
-      && typeof transaction.id === 'string' && transaction.id.trim()
-      && typeof transaction.userId === 'string' && transaction.userId.trim()
-      && transactionTypes.has(transaction.type)
-      && Number.isFinite(amount) && amount > 0 && amount <= 1000000
-      && transactionStatuses.has(transaction.status)
-      && typeof transaction.createdAt === 'string' && Number.isFinite(Date.parse(transaction.createdAt)));
   }
 
   function isValidActivityRecord(record) {
@@ -71,20 +58,17 @@
   }
 
   function getSummary() {
-    if (!isAuthorized()) return { totalUsers: 0, totalTournaments: 0, totalTeams: 0, totalMatches: 0, totalWalletTransactions: 0, totalWalletBalance: 0, activeTournaments: 0, liveMatches: 0, completedMatches: 0 };
-    const users = auth.getUsers();
+    if (!isAuthorized()) return { totalUsers: null, totalTournaments: 0, totalTeams: 0, totalMatches: 0, totalWalletTransactions: null, totalWalletBalance: null, activeTournaments: 0, liveMatches: 0, completedMatches: 0 };
     const tournamentRecords = tournaments.getTournaments();
     const teamRecords = teams.getTeams();
     const matchRecords = matches.getMatches();
-    const wallets = readArray('arenaX_wallets');
-    const transactions = readArray('arenaX_transactions');
     return {
-      totalUsers: users.length,
+      totalUsers: null,
       totalTournaments: tournamentRecords.length,
       totalTeams: teamRecords.length,
       totalMatches: matchRecords.length,
-      totalWalletTransactions: transactions.valid ? transactions.items.filter(isValidTransaction).length : 0,
-      totalWalletBalance: wallets.valid ? wallets.items.reduce((total, wallet) => total + Math.max(0, Number(wallet?.balance) || 0), 0) : 0,
+      totalWalletTransactions: null,
+      totalWalletBalance: null,
       activeTournaments: tournamentRecords.filter((tournament) => ['Upcoming', 'Live'].includes(tournament.status)).length,
       liveMatches: matchRecords.filter((match) => match.status === 'live').length,
       completedMatches: matchRecords.filter((match) => match.status === 'completed').length
@@ -93,10 +77,7 @@
 
   function getUsers() {
     if (!isAuthorized()) return [];
-    return auth.getUsers().map((user) => ({
-      ...user,
-      accountStatus: user.status === 'suspended' ? 'suspended' : 'active'
-    }));
+    return null;
   }
 
   function getTournaments() {
@@ -124,7 +105,6 @@
     if (!isAuthorized()) return [];
     return matches.getAdminMatches().map((match) => {
       const tournament = tournaments.getTournamentById(match.tournamentId);
-      const participants = matches.getMatchParticipants(match);
       return {
         matchId: match.matchId,
         tournamentId: match.tournamentId,
@@ -141,7 +121,7 @@
         roomPassword: match.roomPassword || '',
         roomVisible: Boolean(match.roomVisible),
         resultStatus: match.resultStatus,
-        participantCount: participants.registrations.length,
+        participantCount: match.participantCount,
         updatedAt: match.updatedAt
       };
     });
@@ -149,19 +129,7 @@
 
   function getWalletTransactions() {
     if (!isAuthorized()) return [];
-    const state = readArray('arenaX_transactions');
-    if (!state.valid) return [];
-    return state.items.filter(isValidTransaction).map((transaction) => ({
-      id: transaction.id,
-      userId: transaction.userId,
-      username: auth.getUserById(transaction.userId)?.username || 'Unknown user',
-      type: transaction.type,
-      amount: Number(transaction.amount) || 0,
-      status: transaction.status,
-      description: transaction.description,
-      referenceId: transaction.referenceId || '',
-      createdAt: transaction.createdAt
-    })).sort((first, second) => new Date(second.createdAt) - new Date(first.createdAt));
+    return null;
   }
 
   function getAdminActivity() {
@@ -170,17 +138,6 @@
     return state.valid
       ? state.items.filter(isValidActivityRecord).sort((first, second) => new Date(second.timestamp) - new Date(first.timestamp))
       : [];
-  }
-
-  function setUserStatus(userId, status) {
-    if (!isAuthorized()) return { success: false, message: 'Admin access required.' };
-    if (!['active', 'suspended'].includes(status)) return { success: false, message: 'Choose a valid account status.' };
-    if (!auth.getUsers().some((user) => user.userId === userId)) return { success: false, message: 'User not found.' };
-    if (userId === auth.getCurrentUser().userId && status === 'suspended') return { success: false, message: 'You cannot suspend the current admin account.' };
-    const result = auth.setUserStatus(userId, status);
-    if (!result.success) return result;
-    logAction('user_status_changed', 'user', userId, `Changed account status to ${status}.`);
-    return { success: true, user: result.user };
   }
 
   async function setTournamentStatus(tournamentId, status) {
@@ -214,7 +171,6 @@
     getMatches,
     getWalletTransactions,
     getAdminActivity,
-    setUserStatus,
     setTournamentStatus,
     updateMatch
   });

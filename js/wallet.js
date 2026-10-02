@@ -1,223 +1,150 @@
 (() => {
-  const WALLETS_KEY = 'arenaX_wallets';
-  const TRANSACTIONS_KEY = 'arenaX_transactions';
-  const MAX_TRANSACTION_AMOUNT = 1000000;
-  const creditTypes = new Set(['deposit', 'winning', 'refund', 'adjustment']);
-  const debitTypes = new Set(['withdrawal', 'entry_fee']);
-  const transactionTypes = new Set([...creditTypes, ...debitTypes]);
-  const statuses = new Set(['completed', 'pending', 'failed']);
+  const api = globalThis.ArenaApi;
+  const auth = globalThis.ArenaAuth;
+  if (!api || !auth) return;
 
-  function readArrayState(key) {
+  const MAX_AMOUNT_MINOR = 100_000_000;
+  let wallet = null;
+  let transactions = [];
+  let walletError = null;
+  let transactionsError = null;
+
+  function currentUser(userId) {
+    const user = auth.getCurrentUser();
+    return user && (!userId || user.userId === userId) ? user : null;
+  }
+
+  function errorMessage(error) {
+    return error && typeof error.message === 'string'
+      ? error.message
+      : 'The wallet request could not be completed. Please try again.';
+  }
+
+  function isMinorAmount(value) {
+    return Number.isSafeInteger(value) && value >= 0;
+  }
+
+  function isWallet(value, userId) {
+    return Boolean(value && typeof value === 'object' && value.userId === userId
+      && value.currency === 'INR'
+      && ['active', 'restricted', 'closed'].includes(value.status)
+      && ['availableBalanceMinor', 'reservedBalanceMinor', 'totalDepositedMinor', 'totalWithdrawnMinor', 'totalWinningsMinor']
+        .every((key) => isMinorAmount(value[key]))
+      && typeof value.updatedAt === 'string' && Number.isFinite(Date.parse(value.updatedAt)));
+  }
+
+  function isTransaction(value, userId) {
+    return Boolean(value && typeof value === 'object'
+      && typeof value.transactionId === 'string' && value.transactionId.trim()
+      && value.userId === userId && value.currency === 'INR'
+      && ['deposit', 'withdrawal', 'entry_fee', 'winning', 'refund', 'adjustment'].includes(value.type)
+      && ['credit', 'debit'].includes(value.direction)
+      && Number.isSafeInteger(value.amountMinor) && value.amountMinor > 0
+      && ['pending', 'completed', 'failed', 'reversed', 'approved', 'rejected', 'cancelled'].includes(value.status)
+      && typeof value.description === 'string'
+      && (value.referenceId === null || typeof value.referenceId === 'string')
+      && typeof value.createdAt === 'string' && Number.isFinite(Date.parse(value.createdAt)));
+  }
+
+  async function loadWallet(userId) {
+    const user = currentUser(userId);
+    if (!user) {
+      wallet = null;
+      walletError = { code: 'UNAUTHORIZED', message: 'Log in to view your wallet.' };
+      return { success: false, error: walletError };
+    }
     try {
-      const raw = localStorage.getItem(key);
-      if (raw === null) return { items: [], raw, valid: true };
-      const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? { items: parsed, raw, valid: true } : { items: [], raw, valid: false };
-    } catch {
-      return { items: [], raw: null, valid: false };
+      const response = await api.request('/api/wallet');
+      if (!isWallet(response.wallet, user.userId)) throw new Error('The backend returned invalid wallet information.');
+      wallet = response.wallet;
+      walletError = null;
+      return { success: true, wallet };
+    } catch (error) {
+      wallet = null;
+      walletError = { code: error.code || 'BACKEND_UNAVAILABLE', message: errorMessage(error) };
+      return { success: false, error: walletError };
     }
   }
 
-  function currentUser() {
-    return globalThis.ArenaAuth?.getCurrentUser() || null;
+  async function loadTransactions(userId) {
+    const user = currentUser(userId);
+    if (!user) {
+      transactions = [];
+      transactionsError = { code: 'UNAUTHORIZED', message: 'Log in to view your transactions.' };
+      return { success: false, error: transactionsError };
+    }
+    try {
+      const response = await api.request('/api/wallet/transactions?limit=100&offset=0');
+      if (!Array.isArray(response.transactions) || !response.transactions.every((entry) => isTransaction(entry, user.userId))) {
+        throw new Error('The backend returned invalid transaction information.');
+      }
+      transactions = [...response.transactions].sort((first, second) => Date.parse(second.createdAt) - Date.parse(first.createdAt));
+      transactionsError = null;
+      return { success: true, transactions: [...transactions] };
+    } catch (error) {
+      transactions = [];
+      transactionsError = { code: error.code || 'BACKEND_UNAVAILABLE', message: errorMessage(error) };
+      return { success: false, error: transactionsError };
+    }
   }
 
-  function canAccess(userId) {
-    const user = currentUser();
-    return Boolean(user && userId && user.userId === userId);
+  function parseAmountMinor(value) {
+    const text = String(value ?? '').trim();
+    if (!/^(?:0|[1-9]\d*)(?:\.\d{1,2})?$/.test(text)) return null;
+    const [rupees, fraction = ''] = text.split('.');
+    const amountMinor = Number(rupees) * 100 + Number(fraction.padEnd(2, '0'));
+    return Number.isSafeInteger(amountMinor) && amountMinor > 0 && amountMinor <= MAX_AMOUNT_MINOR
+      ? amountMinor
+      : null;
   }
 
-  function amountValue(value) {
-    if (typeof value === 'string' && value.trim() === '') return null;
-    const amount = Number(value);
-    if (!Number.isFinite(amount) || amount <= 0 || amount > MAX_TRANSACTION_AMOUNT) return null;
-    const rounded = Math.round(amount * 100) / 100;
-    return rounded > 0 ? rounded : null;
+  function makeIdempotencyKey() {
+    const randomId = globalThis.crypto?.randomUUID?.();
+    return randomId || `withdrawal-${Date.now()}-${Math.random().toString(36).slice(2, 14)}`;
   }
 
-  function isValidTransaction(transaction) {
-    if (!transaction || typeof transaction !== 'object' || Array.isArray(transaction)) return false;
-    return typeof transaction.id === 'string' && Boolean(transaction.id.trim())
-      && typeof transaction.userId === 'string' && Boolean(transaction.userId.trim())
-      && transactionTypes.has(transaction.type)
-      && amountValue(transaction.amount) !== null
-      && statuses.has(transaction.status)
-      && typeof transaction.createdAt === 'string'
-      && Number.isFinite(Date.parse(transaction.createdAt));
-  }
-
-  function createId(transactions) {
-    let id = '';
-    do {
-      id = globalThis.crypto?.randomUUID?.() || `wallet-tx-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-    } while (transactions.some((transaction) => transaction?.id === id));
-    return id;
-  }
-
-  function ensureWallet(userId) {
-    const state = readArrayState(WALLETS_KEY);
-    if (!state.valid) return { wallet: null, state, created: false };
-    let wallet = state.items.find((item) => item?.userId === userId);
-    if (wallet) {
-      const balance = Number(wallet.balance);
-      if (!Number.isFinite(balance) || balance < 0) return { wallet: null, state, created: false };
+  async function requestWithdrawal(userId, amountMinor) {
+    const user = currentUser(userId);
+    if (!user) return { success: false, reason: 'UNAUTHORIZED', message: 'Log in to request a withdrawal.' };
+    if (!Number.isSafeInteger(amountMinor) || amountMinor < 1 || amountMinor > MAX_AMOUNT_MINOR) {
+      return { success: false, reason: 'VALIDATION', message: 'Enter a valid amount in rupees.' };
+    }
+    try {
+      const response = await api.request('/api/wallet/withdrawal-requests', {
+        method: 'POST',
+        headers: { 'Idempotency-Key': makeIdempotencyKey() },
+        body: { amountMinor }
+      });
+      if (!response.withdrawal || response.withdrawal.wallet?.userId !== user.userId) {
+        throw new Error('The backend returned an invalid withdrawal response.');
+      }
+      return { success: true, withdrawal: response.withdrawal };
+    } catch (error) {
       return {
-        wallet: {
-          ...wallet,
-          balance,
-          totalDeposited: Number.isFinite(Number(wallet.totalDeposited)) && Number(wallet.totalDeposited) >= 0 ? Number(wallet.totalDeposited) : 0,
-          totalWithdrawn: Number.isFinite(Number(wallet.totalWithdrawn)) && Number(wallet.totalWithdrawn) >= 0 ? Number(wallet.totalWithdrawn) : 0,
-          totalWinnings: Number.isFinite(Number(wallet.totalWinnings)) && Number(wallet.totalWinnings) >= 0 ? Number(wallet.totalWinnings) : 0
-        },
-        state,
-        created: false
+        success: false,
+        reason: error.code || 'REQUEST_FAILED',
+        message: errorMessage(error)
       };
     }
-    const legacyBalance = Number(globalThis.ArenaAuth?.getLegacyWalletBalance?.(userId) || 0);
-    const balance = Number.isFinite(legacyBalance) && legacyBalance >= 0 ? Math.round(legacyBalance * 100) / 100 : 0;
-    wallet = { userId, balance, totalDeposited: 0, totalWithdrawn: 0, totalWinnings: 0, updatedAt: new Date().toISOString() };
-    try {
-      localStorage.setItem(WALLETS_KEY, JSON.stringify([...state.items, wallet]));
-      return { wallet, state, created: true };
-    } catch {
-      return { wallet: null, state: { ...state, valid: false }, created: false };
-    }
   }
 
-  function getWallet(userId = currentUser()?.userId) {
-    if (!canAccess(userId)) return null;
-    return ensureWallet(userId).wallet;
+  function formatPaise(value) {
+    if (!Number.isSafeInteger(value) || value < 0) return '—';
+    const rupees = Math.floor(value / 100);
+    const paise = value % 100;
+    return `₹${rupees.toLocaleString('en-IN')}.${String(paise).padStart(2, '0')}`;
   }
 
-  function getWalletBalance(userId = currentUser()?.userId) {
-    return Number(getWallet(userId)?.balance || 0);
-  }
-
-  function getUserTransactions(userId = currentUser()?.userId) {
-    if (!canAccess(userId)) return [];
-    const state = readArrayState(TRANSACTIONS_KEY);
-    if (!state.valid) return [];
-    return state.items.filter((transaction) => isValidTransaction(transaction) && transaction.userId === userId)
-      .sort((first, second) => new Date(second.createdAt) - new Date(first.createdAt));
-  }
-
-  function buildTransaction(userId, amount, metadata, transactions) {
-    const value = amountValue(amount);
-    const type = String(metadata?.type || 'adjustment');
-    const status = String(metadata?.status || 'completed');
-    if (value === null) return { error: 'Enter an amount greater than 0 and no more than ₹10,00,000.' };
-    if (!transactionTypes.has(type)) return { error: 'That transaction type is not supported.' };
-    if (!statuses.has(status)) return { error: 'That transaction status is not supported.' };
-    const description = String(metadata?.description || '').trim().slice(0, 160);
-    const referenceId = metadata?.referenceId == null ? null : String(metadata.referenceId).slice(0, 120);
-    return {
-      transaction: {
-        id: createId(transactions),
-        userId,
-        type,
-        amount: value,
-        status,
-        description: description || `${type.replaceAll('_', ' ')} transaction`,
-        referenceId,
-        createdAt: new Date().toISOString()
-      }
-    };
-  }
-
-  function commit(walletState, transactionState, wallets, transactions) {
-    if (!walletState.valid || !transactionState.valid) return false;
-    try {
-      localStorage.setItem(WALLETS_KEY, JSON.stringify(wallets));
-      localStorage.setItem(TRANSACTIONS_KEY, JSON.stringify(transactions));
-      return true;
-    } catch {
-      try {
-        if (walletState.raw === null) localStorage.removeItem(WALLETS_KEY);
-        else localStorage.setItem(WALLETS_KEY, walletState.raw);
-        if (transactionState.raw === null) localStorage.removeItem(TRANSACTIONS_KEY);
-        else localStorage.setItem(TRANSACTIONS_KEY, transactionState.raw);
-      } catch {
-        return false;
-      }
-      return false;
-    }
-  }
-
-  function saveTransactionOnly(userId, amount, metadata = {}) {
-    if (!canAccess(userId)) return { success: false, reason: 'auth', message: 'Log in to manage your wallet.' };
-    const transactionState = readArrayState(TRANSACTIONS_KEY);
-    if (!transactionState.valid) return { success: false, reason: 'storage', message: 'Transaction storage is invalid and was left unchanged.' };
-    const result = buildTransaction(userId, amount, metadata, transactionState.items);
-    if (result.error) return { success: false, reason: 'validation', message: result.error };
-    if (!saveTransactions([...transactionState.items, result.transaction])) return { success: false, reason: 'storage', message: 'Your browser could not save this transaction.' };
-    return { success: true, transaction: result.transaction };
-  }
-
-  function saveTransactions(transactions) {
-    const state = readArrayState(TRANSACTIONS_KEY);
-    if (!state.valid) return false;
-    try {
-      localStorage.setItem(TRANSACTIONS_KEY, JSON.stringify(transactions));
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  function changeBalance(userId, amount, metadata, direction) {
-    if (!canAccess(userId)) return { success: false, reason: 'auth', message: 'Log in to manage your wallet.' };
-    const normalizedAmount = amountValue(amount);
-    if (normalizedAmount === null) return { success: false, reason: 'validation', message: 'Enter an amount greater than 0 and no more than ₹10,00,000.' };
-    const type = String(metadata?.type || (direction > 0 ? 'deposit' : 'withdrawal'));
-    if (!(direction > 0 ? creditTypes : debitTypes).has(type)) return { success: false, reason: 'type', message: 'That wallet operation is not supported.' };
-    const transactionStatus = String(metadata?.status || (type === 'withdrawal' ? 'pending' : 'completed'));
-    if (direction > 0 && transactionStatus !== 'completed') return { success: false, reason: 'status', message: 'Wallet credits must be completed transactions.' };
-    if (direction < 0 && !['pending', 'completed'].includes(transactionStatus)) return { success: false, reason: 'status', message: 'Failed transactions cannot debit the wallet.' };
-    const walletState = readArrayState(WALLETS_KEY);
-    const transactionState = readArrayState(TRANSACTIONS_KEY);
-    if (!walletState.valid || !transactionState.valid) return { success: false, reason: 'storage', message: 'Wallet storage is invalid and was left unchanged.' };
-    const indexedWallet = walletState.items.findIndex((wallet) => wallet?.userId === userId);
-    const wallet = indexedWallet < 0 ? ensureWallet(userId).wallet : walletState.items[indexedWallet];
-    if (!wallet) return { success: false, reason: 'storage', message: 'Your browser could not initialize this wallet.' };
-    if (direction < 0 && normalizedAmount > Number(wallet.balance || 0)) return { success: false, reason: 'insufficient-funds', message: 'Insufficient wallet balance.' };
-    const transactionResult = buildTransaction(userId, normalizedAmount, { ...metadata, type, status: transactionStatus }, transactionState.items);
-    if (transactionResult.error) return { success: false, reason: 'validation', message: transactionResult.error };
-    const transaction = transactionResult.transaction;
-    const nextWallet = {
-      ...wallet,
-      balance: Math.round((Number(wallet.balance || 0) + direction * normalizedAmount) * 100) / 100,
-      totalDeposited: Number(wallet.totalDeposited || 0) + (type === 'deposit' && direction > 0 ? normalizedAmount : 0),
-      totalWithdrawn: Number(wallet.totalWithdrawn || 0) + (type === 'withdrawal' && direction < 0 && transaction.status === 'completed' ? normalizedAmount : 0),
-      totalWinnings: Number(wallet.totalWinnings || 0) + (type === 'winning' && direction > 0 ? normalizedAmount : 0),
-      updatedAt: new Date().toISOString()
-    };
-    if (nextWallet.balance < 0) return { success: false, reason: 'insufficient-funds', message: 'Wallet balance cannot be negative.' };
-    const nextWallets = indexedWallet < 0
-      ? [...walletState.items, nextWallet]
-      : walletState.items.map((item, index) => index === indexedWallet ? nextWallet : item);
-    if (!commit(walletState, transactionState, nextWallets, [...transactionState.items, transaction])) {
-      return { success: false, reason: 'storage', message: 'Your browser could not save the wallet transaction.' };
-    }
-    return { success: true, wallet: nextWallet, transaction };
-  }
-
-  function creditWallet(userId, amount, metadata = {}) {
-    return changeBalance(userId, amount, metadata, 1);
-  }
-
-  function debitWallet(userId, amount, metadata = {}) {
-    const details = { ...metadata };
-    if (details.type === 'withdrawal' && !details.status) details.status = 'pending';
-    return changeBalance(userId, amount, details, -1);
-  }
-
+  globalThis.ArenaMoney = Object.freeze({ formatPaise });
   globalThis.ArenaWallet = Object.freeze({
-    getWallet,
-    getWalletBalance,
-    creditWallet,
-    debitWallet,
-    createTransaction: saveTransactionOnly,
-    getUserTransactions,
-    getMaximumAmount: () => MAX_TRANSACTION_AMOUNT
+    loadWallet,
+    loadTransactions,
+    requestWithdrawal,
+    parseAmountMinor,
+    formatPaise,
+    getWallet: () => wallet,
+    getTransactions: () => [...transactions],
+    getWalletError: () => walletError,
+    getTransactionsError: () => transactionsError
   });
 })();

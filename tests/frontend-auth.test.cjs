@@ -17,7 +17,7 @@ function createAuthHarness(handler, entries = {}) {
     removeItem: (key) => values.delete(key)
   };
   const location = {
-    pathname: '/login.html',
+    pathname: '/profile.html',
     search: '',
     replaced: null,
     assigned: null,
@@ -61,6 +61,8 @@ function publicUser(overrides = {}) {
     username: 'arena_player',
     email: 'player@example.test',
     avatar: 'AP',
+    role: 'user',
+    status: 'active',
     createdAt: '2026-01-01T00:00:00.000Z',
     ...overrides
   };
@@ -106,6 +108,92 @@ test('API helper does not expose raw server or database errors', async () => {
   await assert.rejects(sandbox.ArenaApi.request('/api/auth/me'), (error) => {
     assert.equal(error.code, 'BACKEND_UNAVAILABLE');
     assert.doesNotMatch(error.message, /database-secret|password/);
+    return true;
+  });
+});
+
+test('API helper supports a configured local backend and rejects insecure remote URLs', async () => {
+  let capturedUrl;
+  const localSandbox = {
+    document: { baseURI: 'http://localhost:5500/ARENA-X/login.html' },
+    URL,
+    Headers,
+    async fetch(url) {
+      capturedUrl = url;
+      return { ok: true, status: 200, text: async () => '{"user":{}}' };
+    }
+  };
+  localSandbox.globalThis = localSandbox;
+  vm.runInNewContext(apiSource, localSandbox);
+  await localSandbox.ArenaApi.request('/api/auth/me');
+  assert.equal(capturedUrl, 'http://localhost:3000/api/auth/me');
+
+  const insecureSandbox = {
+    document: { baseURI: 'https://example.test/index.html' },
+    URL,
+    Headers,
+    ARENA_API_BASE_URL: 'http://api.example.test',
+    async fetch() { throw new Error('Fetch must not be reached'); }
+  };
+  insecureSandbox.globalThis = insecureSandbox;
+  vm.runInNewContext(apiSource, insecureSandbox);
+  await assert.rejects(insecureSandbox.ArenaApi.request('/api/auth/me'), (error) => {
+    assert.equal(error.code, 'CONFIGURATION');
+    assert.match(error.message, /HTTPS/);
+    return true;
+  });
+});
+
+test('API helper classifies authentication HTTP failures and malformed responses safely', async () => {
+  let status = 400;
+  let responseText = '{"error":{"code":"RAW","message":"database password detail"}}';
+  const sandbox = {
+    document: { baseURI: 'https://example.test/login.html' },
+    URL,
+    Headers,
+    async fetch() {
+      return { ok: false, status, text: async () => responseText };
+    }
+  };
+  sandbox.globalThis = sandbox;
+  vm.runInNewContext(apiSource, sandbox);
+  const expected = [
+    [400, 'VALIDATION'],
+    [401, 'UNAUTHORIZED'],
+    [403, 'FORBIDDEN'],
+    [404, 'NOT_FOUND'],
+    [409, 'CONFLICT'],
+    [429, 'RATE_LIMITED'],
+    [500, 'BACKEND_UNAVAILABLE'],
+    [503, 'BACKEND_UNAVAILABLE']
+  ];
+  for (const [responseStatus, code] of expected) {
+    status = responseStatus;
+    await assert.rejects(sandbox.ArenaApi.request('/api/auth/login'), (error) => {
+      assert.equal(error.code, code);
+      assert.doesNotMatch(error.message, /database password detail|RAW/);
+      return true;
+    });
+  }
+  status = 200;
+  responseText = '<html>not JSON</html>';
+  await assert.rejects(sandbox.ArenaApi.request('/api/auth/me'), (error) => {
+    assert.equal(error.code, 'BACKEND_UNAVAILABLE');
+    return true;
+  });
+
+  const networkSandbox = {
+    document: { baseURI: 'https://example.test/login.html' },
+    URL,
+    Headers,
+    async fetch() { throw new Error('socket details'); }
+  };
+  networkSandbox.globalThis = networkSandbox;
+  vm.runInNewContext(apiSource, networkSandbox);
+  await assert.rejects(networkSandbox.ArenaApi.request('/api/auth/me'), (error) => {
+    assert.equal(error.code, 'NETWORK');
+    assert.doesNotMatch(error.message, /socket details/);
+    assert.match(error.message, /backend/i);
     return true;
   });
 });
@@ -195,25 +283,70 @@ test('logout revokes via the backend and clears only in-memory session state', a
   assert.equal(calls.at(-1).options.method, 'POST');
 });
 
-test('expired sessions redirect protected pages and localStorage cannot grant admin', async () => {
-  const existingUsers = [{ userId: 'legacy-user', username: 'old', password: 'old-password', role: 'admin', isDemo: true }];
+test('backend admin role controls admin access and legacy auth secrets are removed', async () => {
+  const existingUsers = [{
+    userId: 'legacy-user', username: 'old', password: 'old-password', password_hash: 'old-hash',
+    session_token: 'old-session', access_token: 'old-access', role: 'admin', isDemo: true, walletBalance: 900
+  }];
   const { auth, location, values } = createAuthHarness(async (url) => {
     if (url === '/api/auth/me') return { user: publicUser({ role: 'admin', status: 'active' }) };
   }, {
     'arena-x-users-v1': JSON.stringify(existingUsers),
-    'arena-x-session-v1': JSON.stringify({ userId: 'legacy-user', expiresAt: Date.now() + 3600000 })
+    'arena-x-session-v1': JSON.stringify({ userId: 'legacy-user', expiresAt: Date.now() + 3600000 }),
+    'arenaX_wallets': JSON.stringify([{ userId: 'legacy-user', balance: 25 }])
   });
   await auth.ready;
 
   assert.equal(auth.isLoggedIn(), true);
-  assert.equal(auth.isAdmin(), false);
-  assert.equal(await auth.requireAdmin(), false);
-  assert.equal(location.replaced, 'index.html');
+  assert.equal(auth.isAdmin(), true);
+  assert.equal(await auth.requireAdmin(), true);
+  assert.equal(location.replaced, null);
   assert.equal(values.has('arena-x-session-v1'), false);
   const users = JSON.parse(values.get('arena-x-users-v1'));
   assert.equal(users[0].password, undefined);
+  assert.equal(users[0].password_hash, undefined);
+  assert.equal(users[0].session_token, undefined);
+  assert.equal(users[0].access_token, undefined);
+  assert.equal(users[0].walletBalance, undefined);
   assert.equal(users[0].username, 'old');
   assert.equal(users.some((user) => user.role === 'admin' && user.userId === 'user-123'), false);
+  assert.deepEqual(JSON.parse(values.get('arenaX_wallets')), [{ userId: 'legacy-user', balance: 25 }]);
+});
+
+test('admin role is taken only from an active backend session and is not cached', async () => {
+  const { auth, values } = createAuthHarness(async (url) => {
+    if (url === '/api/auth/me') return { user: publicUser({ role: 'user', status: 'active' }) };
+  }, {
+    'arena-x-users-v1': JSON.stringify([{ userId: 'user-123', username: 'arena_player', role: 'admin', status: 'active' }])
+  });
+  await auth.ready;
+  assert.equal(auth.isLoggedIn(), true);
+  assert.equal(auth.isAdmin(), false);
+  assert.equal(auth.getCurrentUserRole(), 'user');
+  const users = JSON.parse(values.get('arena-x-users-v1'));
+  assert.equal(users[0].role, undefined);
+  assert.equal(users[0].status, undefined);
+});
+
+test('invalid backend status and failed session refresh clear authentication', async () => {
+  let fail = false;
+  const { auth, location } = createAuthHarness(async (url) => {
+    if (url === '/api/auth/me') {
+      if (fail) throw Object.assign(new Error('network failure'), { code: 'NETWORK' });
+      return { user: publicUser({ role: 'admin', status: 'suspended' }) };
+    }
+  });
+  await auth.ready;
+  assert.equal(auth.isLoggedIn(), false);
+  assert.equal(auth.isAdmin(), false);
+  assert.equal(auth.getCurrentUser(), null);
+  assert.equal(await auth.requireLogin(), false);
+  assert.equal(location.replaced, 'login.html');
+
+  fail = true;
+  await auth.checkSession();
+  assert.equal(auth.isLoggedIn(), false);
+  assert.equal(auth.isAdmin(), false);
 });
 
 test('invalid sessions do not create a browser session', async () => {

@@ -81,8 +81,8 @@
     joinDialog.innerHTML = `<button class="dialog-close" type="button" aria-label="Close confirmation" data-join-cancel>×</button>
       <div class="join-dialog-content"><p class="eyebrow"><span class="eyebrow-line"></span> ARENA X / CONFIRM ENTRY</p><h2 id="join-confirm-title">Join Tournament</h2>
       <div class="join-dialog-facts"><div><span>TOURNAMENT</span><strong data-confirm-name></strong></div><div><span>GAME / TYPE</span><strong data-confirm-game></strong></div><div><span>DATE / TIME</span><strong data-confirm-start></strong></div><div><span>ENTRY FEE</span><strong data-confirm-fee></strong></div><div><span>PRIZE POOL</span><strong data-confirm-prize></strong></div><div><span>AVAILABLE SLOTS</span><strong data-confirm-slots></strong></div></div>
-      <p class="demo-payment-note" data-confirm-payment hidden>DEMO MODE — No real payment will be processed.</p>
-      <p class="join-dialog-copy">Confirm to submit your registration to ARENA X.</p>
+      <p class="demo-payment-note" data-confirm-payment hidden>Entry-fee collection is unavailable until an atomic wallet settlement endpoint is provided.</p>
+      <p class="join-dialog-copy" data-join-copy>Confirm to submit your registration to ARENA X.</p>
       <div class="join-dialog-actions"><button class="button button-outline" type="button" data-join-cancel>Cancel</button><button class="button button-primary" type="button" data-join-confirm><span data-confirm-label>Confirm Registration</span><span aria-hidden="true">↗</span></button></div></div>`;
     document.body.append(joinDialog);
     joinDialog.addEventListener('click', (event) => {
@@ -102,11 +102,15 @@
     dialog.querySelector('[data-confirm-fee]').textContent = tournament.entryFee ? money(tournament.entryFee) : 'FREE';
     dialog.querySelector('[data-confirm-prize]').textContent = money(tournament.prizePool);
     dialog.querySelector('[data-confirm-slots]').textContent = String(store.getAvailableSlots(tournament));
-    dialog.querySelector('[data-confirm-payment]').hidden = tournament.entryFee === 0;
+    const paidEntryUnavailable = tournament.entryFee > 0;
+    dialog.querySelector('[data-confirm-payment]').hidden = !paidEntryUnavailable;
+    dialog.querySelector('[data-join-copy]').textContent = paidEntryUnavailable
+      ? 'This paid tournament cannot accept registrations until entry-fee settlement is supported.'
+      : 'Confirm to submit your registration to ARENA X.';
     const confirmButton = dialog.querySelector('[data-join-confirm]');
-    confirmButton.disabled = false;
+    confirmButton.disabled = paidEntryUnavailable;
     confirmButton.classList.remove('is-loading');
-    dialog.querySelector('[data-confirm-label]').textContent = 'Confirm Registration';
+    dialog.querySelector('[data-confirm-label]').textContent = paidEntryUnavailable ? 'Registration unavailable' : 'Confirm Registration';
     dialog.showModal();
   }
 
@@ -120,11 +124,15 @@
 
   async function confirmRegistration() {
     if (!pendingJoinId) return;
+    const tournament = store.getTournamentById(pendingJoinId);
+    if (tournament?.entryFee > 0) {
+      showToast('Paid registration is unavailable until backend wallet settlement is supported.', true);
+      return;
+    }
     const confirmButton = joinDialog.querySelector('[data-join-confirm]');
     confirmButton.disabled = true;
     confirmButton.classList.add('is-loading');
     joinDialog.querySelector('[data-confirm-label]').textContent = 'Registering...';
-    const tournament = store.getTournamentById(pendingJoinId);
     const team = tournament?.type === 'Solo' ? null : globalThis.ArenaTeams?.getUserTeam();
     const result = await store.joinTournament(pendingJoinId, { ...(team ? { teamId: team.teamId } : {}) });
     if (!result.success) {

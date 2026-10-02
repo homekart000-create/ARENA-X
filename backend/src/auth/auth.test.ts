@@ -220,6 +220,9 @@ test('returns the authenticated profile from /api/auth/me', async (context) => {
   const me = await app.inject({ method: 'GET', url: '/api/auth/me', headers: { cookie: sessionCookie(response) } });
   assert.equal(me.statusCode, 200);
   assert.equal(me.json().user.userId, response.json().user.userId);
+  assert.equal(me.json().user.role, 'user');
+  assert.equal(me.json().user.status, 'active');
+  assert.equal('passwordHash' in me.json().user, false);
 });
 
 test('rejects unauthenticated /api/auth/me requests', async (context) => {
@@ -248,6 +251,8 @@ test('returns the authenticated profile from /api/users/me', async (context) => 
   const response = await app.inject({ method: 'GET', url: '/api/users/me', headers: { cookie: sessionCookie(registration) } });
   assert.equal(response.statusCode, 200);
   assert.equal(response.json().user.email, validAccount.email);
+  assert.equal(response.json().user.role, 'user');
+  assert.equal(response.json().user.status, 'active');
 });
 
 test('does not authorize a normal user for an admin resource', async (context) => {

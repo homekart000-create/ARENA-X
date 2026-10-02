@@ -12,6 +12,8 @@ function toPublicUser(user: AuthUser): PublicUser {
     username: user.username,
     email: user.email,
     avatar: user.avatar,
+    status: user.status,
+    role: user.role,
     createdAt: user.createdAt
   };
 }

@@ -15,7 +15,11 @@
   const backendApi = Object.freeze({
     request: async (...args) => {
       const client = await apiReady;
-      if (!client) throw { code: 'BACKEND_UNAVAILABLE', message: 'Authentication service is unavailable. Please try again later.' };
+      if (!client) {
+        const error = new Error('Authentication service is unavailable. Please try again later.');
+        error.code = 'BACKEND_UNAVAILABLE';
+        throw error;
+      }
       return client.request(...args);
     }
   });
@@ -37,7 +41,11 @@
         if (Array.isArray(users)) {
           const cleaned = users.map((user) => {
             if (!user || typeof user !== 'object' || Array.isArray(user)) return user;
-            const { password, passwordHash, sessionToken, sessionTokenHash, accessToken, ...safeUser } = user;
+            const {
+              password, passwordHash, password_hash, sessionToken, sessionTokenHash, accessToken, refreshToken,
+              authToken, token, session_token, session_token_hash, access_token, refresh_token, auth_token,
+              token_hash, walletBalance, ...safeUser
+            } = user;
             return safeUser;
           });
           localStorage.setItem(USERS_KEY, JSON.stringify(cleaned));
@@ -148,18 +156,22 @@
   }
 
   function isLoggedIn() {
-    return backendUser !== null;
+    return backendUser !== null && backendUser.status === 'active';
   }
 
   function cacheBackendUser(user) {
-    if (!user || typeof user.userId !== 'string' || typeof user.username !== 'string') return false;
+    if (!user || typeof user.userId !== 'string' || !user.userId.trim()
+      || typeof user.username !== 'string' || !user.username.trim()
+      || !['user', 'admin'].includes(user.role) || user.status !== 'active') return false;
     backendUser = {
       userId: user.userId,
       fullName: user.fullName,
       username: user.username,
       email: user.email,
       avatar: user.avatar ?? null,
-      createdAt: user.createdAt
+      createdAt: user.createdAt,
+      role: user.role,
+      status: user.status
     };
     const users = readUsers();
     const index = users.findIndex((entry) => entry.userId === backendUser.userId);
@@ -178,6 +190,7 @@
     delete safeProfile.role;
     delete safeProfile.status;
     delete safeProfile.isDemo;
+    delete safeProfile.walletBalance;
     if (index >= 0) users[index] = safeProfile;
     else users.push(safeProfile);
     writeUsers(users);
@@ -185,13 +198,12 @@
   }
 
   async function checkSession() {
-    const hadUser = Boolean(backendUser);
     try {
       const response = await backendApi.request('/api/auth/me');
       if (!cacheBackendUser(response.user)) throw new Error('Invalid authentication response.');
       sessionError = null;
     } catch (error) {
-      if (!hadUser || error?.code === 'UNAUTHORIZED') backendUser = null;
+      backendUser = null;
       sessionError = error;
     }
     sessionChecked = true;
@@ -203,10 +215,14 @@
       UNAUTHORIZED: 'Email/username or password was not recognized. Check your details or account status.',
       CONFLICT: 'An account with those details already exists.',
       BAD_REQUEST: 'Check the details and try again.',
+      VALIDATION: 'Check the details and try again.',
       FORBIDDEN: 'This action is not allowed from this website.',
       RATE_LIMITED: 'Too many attempts. Please wait and try again.',
       NETWORK: 'Could not reach the authentication service. Check your connection or backend configuration.',
-      BACKEND_UNAVAILABLE: 'Authentication service is unavailable. Please try again later.'
+      BACKEND_UNAVAILABLE: 'Authentication service is unavailable. Please try again later.',
+      CONFIGURATION: 'The backend API URL is not configured correctly. Check the frontend API configuration.',
+      NOT_FOUND: 'The authentication service endpoint is unavailable. Check the backend URL.',
+      REQUEST_FAILED: 'The authentication request could not be completed. Please try again.'
     };
     return messages[error?.code] || 'Authentication service is unavailable. Please try again later.';
   }
@@ -328,25 +344,6 @@
     return { success: true, user: sanitizeUser(users[index]) };
   }
 
-  function setUserStatus(userId, status) {
-    if (!isAdmin()) return { success: false, message: 'Admin access required.' };
-    if (!['active', 'suspended'].includes(status)) return { success: false, message: 'Choose a valid account status.' };
-    if (userId === getCurrentUserRecord()?.userId && status === 'suspended') return { success: false, message: 'You cannot suspend the current admin account.' };
-    const users = readUsers();
-    const index = users.findIndex((user) => user.userId === userId);
-    if (index < 0) return { success: false, message: 'User not found.' };
-    users[index] = { ...users[index], status };
-    if (!writeUsers(users)) return { success: false, message: 'Your browser could not save this update.' };
-    return { success: true, user: sanitizeUser(users[index], true) };
-  }
-
-  function getLegacyWalletBalance(userId) {
-    const user = getCurrentUserRecord();
-    if (!user || user.userId !== userId) return 0;
-    const balance = Number(user.walletBalance);
-    return Number.isFinite(balance) && balance >= 0 ? balance : 0;
-  }
-
   async function logoutUser() {
     try {
       await backendApi.request('/api/auth/logout', { method: 'POST' });
@@ -413,7 +410,7 @@
   }
 
   function getCurrentUserRole() {
-    return 'user';
+    return backendUser?.status === 'active' ? backendUser.role : 'user';
   }
 
   function isAdmin() {
@@ -811,8 +808,11 @@
     }
   }
 
+  const authEntryPage = ['login.html', 'signup.html'].includes(location.pathname.split('/').pop());
   removeLegacyCredentials();
-  const ready = checkSession();
+  const ready = authEntryPage
+    ? Promise.resolve().then(() => { sessionChecked = true; return null; })
+    : checkSession();
   const api = Object.freeze({
     ready,
     checkSession,
@@ -826,8 +826,6 @@
     logoutUser,
     registerUser,
     updateUser,
-    setUserStatus,
-    getLegacyWalletBalance,
     requireLogin,
     requireAdmin,
     isAdmin,
@@ -862,9 +860,11 @@
     await checkSession();
     renderHeaderAccount();
     ensureTournamentNavigation();
-    if (sessionError?.code !== 'UNAUTHORIZED') return;
+    if (isLoggedIn()) return;
     if (document.body.dataset.protected === 'true') await requireLogin();
-    else showToast('Your session is no longer valid. Log in again to continue.');
+    else showToast(sessionError?.code === 'UNAUTHORIZED'
+      ? 'Your session is no longer valid. Log in again to continue.'
+      : 'Your session could not be verified because the authentication service is unavailable.');
   }
   window.setInterval?.(refreshSession, 300000);
   document.addEventListener('visibilitychange', () => {

@@ -15,6 +15,8 @@ export interface PublicUser {
   readonly username: string;
   readonly email: string;
   readonly avatar: string | null;
+  readonly status: string;
+  readonly role: string;
   readonly createdAt: string;
 }
 

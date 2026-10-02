@@ -28,11 +28,20 @@
     const summary = admin.getSummary();
     Object.entries(summary).forEach(([key, value]) => {
       const target = document.querySelector(`[data-admin-stat="${key}"]`);
-      if (target) target.textContent = key === 'totalWalletBalance' ? money(value) : Number(value).toLocaleString('en-IN');
+      if (target) target.textContent = value === null ? '—' : key === 'totalWalletBalance' ? money(value) : Number(value).toLocaleString('en-IN');
     });
   }
 
   function renderUsers() {
+    if (admin.getUsers() === null) {
+      document.querySelector('#admin-users-body').innerHTML = '';
+      document.querySelector('#admin-users-body').closest('table').hidden = true;
+      document.querySelector('#admin-users-empty').hidden = true;
+      document.querySelector('#admin-users-unavailable').hidden = false;
+      document.querySelector('#admin-users .admin-filter-bar').hidden = true;
+      document.querySelector('#admin-users-count').textContent = 'UNAVAILABLE';
+      return;
+    }
     const search = document.querySelector('#admin-user-search').value.trim().toLowerCase();
     const role = document.querySelector('#admin-user-role').value;
     const status = document.querySelector('#admin-user-status').value;
@@ -44,6 +53,8 @@
     body.innerHTML = filtered.map((entry) => `<tr><td><strong>${escapeHtml(entry.username)}</strong><small>${escapeHtml(entry.fullName)}</small></td><td>${escapeHtml(entry.email)}</td><td><span class="admin-role-badge ${entry.role === 'admin' ? 'is-admin' : ''}">${escapeHtml(entry.role.toUpperCase())}</span></td><td><span class="admin-status-badge status-${escapeHtml(entry.status)}">${escapeHtml(entry.status.toUpperCase())}</span></td><td>${escapeHtml(dateLabel(entry.createdAt))}</td><td>${entry.userId === user.userId ? '<span class="admin-self-label">CURRENT ADMIN</span>' : `<button class="button button-outline admin-action-button" type="button" data-admin-action="user-status" data-user-id="${escapeHtml(entry.userId)}" data-next-status="${entry.status === 'active' ? 'suspended' : 'active'}">${entry.status === 'active' ? 'Suspend' : 'Reactivate'}</button>`}</td></tr>`).join('');
     body.closest('table').hidden = filtered.length === 0;
     document.querySelector('#admin-users-empty').hidden = filtered.length !== 0;
+    document.querySelector('#admin-users-unavailable').hidden = true;
+    document.querySelector('#admin-users .admin-filter-bar').hidden = false;
     document.querySelector('#admin-users-count').textContent = `${filtered.length} USERS`;
   }
 
@@ -89,6 +100,15 @@
   }
 
   function renderTransactions() {
+    if (admin.getWalletTransactions() === null) {
+      document.querySelector('#admin-transactions-body').innerHTML = '';
+      document.querySelector('#admin-transactions-body').closest('table').hidden = true;
+      document.querySelector('#admin-transactions-empty').hidden = true;
+      document.querySelector('#admin-wallet-unavailable').hidden = false;
+      document.querySelector('#admin-transactions .admin-filter-bar').hidden = true;
+      document.querySelector('#admin-transactions-count').textContent = 'UNAVAILABLE';
+      return;
+    }
     const search = document.querySelector('#admin-transaction-search').value.trim().toLowerCase();
     const type = document.querySelector('#admin-transaction-type').value;
     const status = document.querySelector('#admin-transaction-status').value;
@@ -106,6 +126,8 @@
     body.innerHTML = filtered.map((entry) => `<tr><td><strong>${escapeHtml(entry.id)}</strong><small>${escapeHtml(entry.username)}</small></td><td>${escapeHtml(entry.type.replaceAll('_', ' ').toUpperCase())}</td><td>${escapeHtml(money(entry.amount))}</td><td><span class="admin-status-badge status-${escapeHtml(entry.status)}">${escapeHtml(entry.status.toUpperCase())}</span></td><td>${escapeHtml(entry.description)}</td><td>${escapeHtml(entry.referenceId || '—')}</td><td>${escapeHtml(dateLabel(entry.createdAt))}</td></tr>`).join('');
     body.closest('table').hidden = filtered.length === 0;
     document.querySelector('#admin-transactions-empty').hidden = filtered.length !== 0;
+    document.querySelector('#admin-wallet-unavailable').hidden = true;
+    document.querySelector('#admin-transactions .admin-filter-bar').hidden = false;
     document.querySelector('#admin-transactions-count').textContent = `${filtered.length} TRANSACTIONS`;
   }
 
@@ -130,12 +152,6 @@
     renderAudit();
   }
 
-  function handleUserStatus(button) {
-    const result = admin.setUserStatus(button.dataset.userId, button.dataset.nextStatus);
-    showNotice(result.success ? 'User status updated.' : result.message, !result.success);
-    renderAll();
-  }
-
   document.addEventListener('input', (event) => {
     if (event.target.matches('#admin-user-search')) renderUsers();
     if (event.target.matches('#admin-tournament-search')) renderTournaments();
@@ -148,10 +164,6 @@
     if (event.target.matches('#admin-tournament-game, #admin-tournament-status')) renderTournaments();
     if (event.target.matches('#admin-match-status')) renderMatches();
     if (event.target.matches('#admin-transaction-type, #admin-transaction-status, #admin-transaction-user')) renderTransactions();
-  });
-  document.addEventListener('click', (event) => {
-    const button = event.target.closest('[data-admin-action="user-status"]');
-    if (button) handleUserStatus(button);
   });
   document.addEventListener('submit', async (event) => {
     const tournamentForm = event.target.closest('[data-admin-tournament-form]');

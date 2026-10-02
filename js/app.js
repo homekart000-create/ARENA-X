@@ -3,7 +3,7 @@ const players = [];
 
 const tournamentGrid = document.querySelector('#tournament-grid');
 const emptyState = document.querySelector('#tournament-empty');
-const toastRegion = document.querySelector('#toast-region');
+const toastRegion = document.querySelector('#toast-region, .toast-region');
 let activeHomeGame = 'Free Fire';
 
 function escapeHtml(value) {
@@ -18,7 +18,7 @@ function homeTournamentCard(tournament, index) {
   const bannerClass = String(tournament.banner).toLowerCase().replace(/[^a-z0-9-]/g, '');
   const date = new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date(`${tournament.startDate}T12:00:00`));
   return `<article class="tournament-card tournament-card-rich" style="animation-delay:${index * 45}ms">
-    <a class="tournament-card-banner tournament-banner-${bannerClass}" href="tournament.html?id=${encodeURIComponent(tournament.id)}"><span class="tournament-banner-kicker">${escapeHtml(tournament.game)} / DEMO EVENT</span><span class="card-status ${statusClass}">${escapeHtml(tournament.status.toUpperCase())}</span><span class="tournament-banner-index">AX / ${String(index + 1).padStart(2, '0')}</span></a>
+    <a class="tournament-card-banner tournament-banner-${bannerClass}" href="tournament.html?id=${encodeURIComponent(tournament.id)}"><span class="tournament-banner-kicker">${escapeHtml(tournament.game)} / ARENA X EVENT</span><span class="card-status ${statusClass}">${escapeHtml(tournament.status.toUpperCase())}</span><span class="tournament-banner-index">AX / ${String(index + 1).padStart(2, '0')}</span></a>
     <div class="tournament-card-body"><div class="tournament-card-title"><h3>${escapeHtml(tournament.name)}</h3><span class="type-badge">${escapeHtml(tournament.type)}</span></div><p class="tournament-game-name">${escapeHtml(tournament.game)} <span>·</span> ${escapeHtml(tournament.mode)}</p>
     <div class="card-prizes"><div><small>PRIZE POOL</small><strong>₹${tournament.prizePool.toLocaleString('en-IN')}</strong></div><div><small>ENTRY FEE</small><strong class="entry-value">${tournament.entryFee ? `₹${tournament.entryFee}` : 'FREE'}</strong></div></div>
     <div class="tournament-card-meta"><span>${date}</span><span>${escapeHtml(tournament.startTime)}</span><span>${tournament.joinedSlots} / ${tournament.maxSlots} slots</span><span>Available: ${window.ArenaTournaments.getAvailableSlots(tournament)}</span></div>
@@ -39,8 +39,8 @@ function renderTournaments(game = activeHomeGame) {
     ? '<span class="live-pulse"></span> TOURNAMENT BACKEND UNAVAILABLE'
     : `<span class="live-pulse"></span> ${String(filtered.length).padStart(2, '0')} EVENTS LISTED`;
   if (window.ArenaTournaments.getError()) {
-    emptyState.querySelector('h2').textContent = 'Tournament backend unavailable';
-    emptyState.querySelector('p').textContent = window.ArenaTournaments.getError().message;
+    emptyState.querySelector('p').textContent = 'Tournament backend unavailable';
+    emptyState.lastElementChild.textContent = window.ArenaTournaments.getError().message;
   }
 }
 

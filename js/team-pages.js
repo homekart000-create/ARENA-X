@@ -229,7 +229,7 @@
         event.preventDefault();
         const result = await teams.sendTeamInvitation(form.dataset.teamInviteForm, new FormData(form).get('username'));
         const feedback = form.querySelector('.team-invite-result');
-        feedback.textContent = result.success ? `Invitation sent to ${result.invitation.receiverId}.` : result.message;
+        feedback.textContent = result.success ? 'Invitation sent.' : result.message;
         feedback.classList.toggle('is-error', !result.success);
         if (result.success) {
           form.reset();
