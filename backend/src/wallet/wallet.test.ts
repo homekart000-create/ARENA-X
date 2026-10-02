@@ -401,6 +401,25 @@ test('withdrawal requests reserve available funds and remain pending', async (co
   assert.equal(replay.json().withdrawal.wallet.availableBalanceMinor, 1700);
 });
 
+test('withdrawal requests are rate limited without duplicating idempotent requests', async (context) => {
+  const harness = await createWalletHarness(context);
+  await credit(harness, 2500);
+  const headers = { cookie: harness.userCookie, origin: ORIGIN, 'idempotency-key': key('withdrawal-limit') };
+  const responses = [];
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    responses.push(await harness.app.inject({
+      method: 'POST', url: '/api/wallet/withdrawal-requests', headers, payload: { amountMinor: 800 }
+    }));
+  }
+
+  assert.equal(responses[0]?.statusCode, 202);
+  assert.equal(responses[1]?.statusCode, 200);
+  assert.equal(responses[4]?.statusCode, 200);
+  assert.equal(responses[5]?.statusCode, 429);
+  assert.equal((await harness.service.getWallet(harness.user.userId)).availableBalanceMinor, 1700);
+  assert.equal((await harness.service.listTransactions(harness.user.userId, { limit: 10, offset: 0 })).length, 2);
+});
+
 test('withdrawal validation requires positive paise, origin, and idempotency key', async (context) => {
   const harness = await createWalletHarness(context);
   const invalidAmount = await harness.app.inject({

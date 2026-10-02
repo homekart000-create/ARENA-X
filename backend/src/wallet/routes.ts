@@ -57,6 +57,7 @@ export function registerWalletRoutes(app: FastifyInstance, options: WalletRouteO
   }));
 
   app.post<{ Body: WithdrawalBody }>('/api/wallet/withdrawal-requests', {
+    config: { rateLimit: { max: 5, timeWindow: '15 minutes' } },
     preHandler: requireAuth,
     schema: {
       body: {

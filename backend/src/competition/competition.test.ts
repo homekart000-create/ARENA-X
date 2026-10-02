@@ -687,6 +687,35 @@ test('protected room information requires an authenticated participant or admin'
   assert.equal(registration.statusCode, 201);
 });
 
+test('room credential decryption failures return a safe error without plaintext or key material', async (context) => {
+  const harness = await createHarness(context);
+  const tournament = harness.domain.seedTournament('Solo');
+  await registerTournament(harness, tournament.id);
+  const matchResponse = await createMatch(harness, tournament.id, { roomId: 'PRIVATE-ROOM-ID', roomPassword: 'PRIVATE-ROOM-PASSWORD', roomVisible: true });
+  const match = matchResponse.json().match as MatchView;
+  const configWithoutKey = parseEnvironment({ NODE_ENV: 'test', CORS_ORIGINS: TEST_ORIGIN });
+  const appWithoutKey = buildApp(configWithoutKey, harness.auth, harness.domain);
+  context.after(async () => appWithoutKey.close());
+  const response = await appWithoutKey.inject({
+    method: 'GET',
+    url: `/api/matches/${match.matchId}/room-credentials`,
+    headers: { cookie: harness.userCookie }
+  });
+
+  assert.equal(response.statusCode, 503);
+  assert.equal(response.json().error.code, 'ROOM_ENCRYPTION_UNAVAILABLE');
+  assert.equal(response.body.includes('PRIVATE-ROOM-ID'), false);
+  assert.equal(response.body.includes('PRIVATE-ROOM-PASSWORD'), false);
+  assert.equal(response.body.includes('ROOM_CREDENTIALS_KEY'), false);
+});
+
+test('invalid room credential keys are rejected during configuration parsing', () => {
+  assert.throws(
+    () => parseEnvironment({ NODE_ENV: 'test', CORS_ORIGINS: TEST_ORIGIN, ROOM_CREDENTIALS_KEY: Buffer.alloc(31).toString('base64') }),
+    /ROOM_CREDENTIALS_KEY must be a base64-encoded 32-byte key/
+  );
+});
+
 test('unpublished match results are not visible publicly', async (context) => {
   const harness = await createHarness(context);
   const tournament = harness.domain.seedTournament('Solo');

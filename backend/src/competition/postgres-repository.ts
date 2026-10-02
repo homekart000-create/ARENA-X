@@ -376,6 +376,9 @@ export class PostgresCompetitionRepository implements CompetitionRepository {
       if (!tournament || tournament.status === 'draft') throw new CompetitionError(404, 'TOURNAMENT_NOT_FOUND', 'Tournament not found.');
       if (!['upcoming', 'live'].includes(tournament.status)) throw new CompetitionError(400, 'REGISTRATION_CLOSED', 'Registration is not open for this tournament.');
       if (new Date(tournament.registration_deadline).getTime() < Date.now()) throw new CompetitionError(400, 'REGISTRATION_CLOSED', 'The registration deadline has passed.');
+      if (BigInt(tournament.entry_fee_minor) !== 0n) {
+        throw new CompetitionError(409, 'PAID_REGISTRATION_UNAVAILABLE', 'Paid tournament registration is unavailable until payment settlement is supported.');
+      }
 
       const required = expectedRosterSize(tournament.participation_type);
       if (tournament.participation_type === 'Solo') {
