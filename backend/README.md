@@ -40,7 +40,7 @@ Passwords are hashed with Argon2id. Cookies are HTTP-only with a seven-day defau
 
 Registration is limited to 5 requests per IP per 15 minutes and login to 10 per IP per 15 minutes. The current rate-limit store is process-local; multi-instance deployments need a shared rate-limit store.
 
-The current `localStorage` frontend authentication is unchanged. It is not connected to these endpoints, and no browser records are copied or migrated.
+The frontend authentication/session integration and its GitHub Pages configuration constraints are documented in [`../docs/frontend-auth-phase-1.md`](../docs/frontend-auth-phase-1.md). The frontend remains static; no Node runtime is required to serve it.
 
 ## Database and migrations
 

@@ -2,8 +2,7 @@
   const walletStore = globalThis.ArenaWallet;
   const auth = globalThis.ArenaAuth;
   if (!walletStore || !auth || document.body.dataset.page !== 'wallet') return;
-  const user = auth.getCurrentUser();
-  if (!user) return;
+  let user = auth.getCurrentUser();
   const amountLabel = (value) => `₹${Number(value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const dateLabel = (value) => new Intl.DateTimeFormat('en-IN', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
   const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
@@ -82,6 +81,10 @@
     renderTransactions();
   });
 
-  renderSummary();
-  renderTransactions();
+  auth.ready.then(() => {
+    user = auth.getCurrentUser();
+    if (!user) return;
+    renderSummary();
+    renderTransactions();
+  });
 })();

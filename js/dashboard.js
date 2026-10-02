@@ -1,5 +1,7 @@
 (() => {
   const auth = globalThis.ArenaAuth;
+  if (!auth) return;
+  auth.ready.then(() => {
   const tournaments = globalThis.ArenaTournaments;
   const teams = globalThis.ArenaTeams;
   const matches = globalThis.ArenaMatches;
@@ -136,4 +138,5 @@
         <section class="profile-dashboard-section"><div class="profile-dashboard-section-heading"><div><p class="eyebrow"><span class="eyebrow-line"></span> INBOX</p><h2>Notifications <span>(${notifications?.getUnreadCount(user.userId) || 0})</span></h2></div><a class="dashboard-section-link" href="notifications.html">All notifications ↗</a></div><div id="profile-notifications-preview" class="dashboard-notification-list">${notificationPreview()}</div></section></div>`;
   content.querySelector('#profile-dashboard')?.remove();
   content.querySelector('.profile-stats')?.after(dashboard);
+  });
 })();

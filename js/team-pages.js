@@ -258,4 +258,10 @@
   if (document.querySelector('#team-dashboard')) renderTeamPage();
   if (document.querySelector('#team-invitations-list')) renderInvitations();
   if (document.querySelector('#profile-content')) renderProfileTeam();
+  auth.ready.then(() => {
+    if (!auth.isLoggedIn()) return;
+    if (document.querySelector('#team-dashboard')) renderTeamPage();
+    if (document.querySelector('#team-invitations-list')) renderInvitations();
+    if (document.querySelector('#profile-content')) renderProfileTeam();
+  });
 })();

@@ -298,4 +298,10 @@
   if (document.body.dataset.page === 'tournaments') renderTournamentList();
   if (document.body.dataset.page === 'tournament-detail') renderTournamentDetail();
   if (document.body.dataset.page === 'my-tournaments' && auth.isLoggedIn()) renderMyTournaments();
+  auth.ready.then(() => {
+    if (document.body.dataset.page === 'my-tournaments' && !auth.isLoggedIn()) return;
+    if (document.body.dataset.page === 'my-tournaments') renderMyTournaments();
+    const sessionNotice = auth.consumeNotice();
+    if (sessionNotice) showToast(sessionNotice.message, sessionNotice.type === 'error');
+  });
 })();

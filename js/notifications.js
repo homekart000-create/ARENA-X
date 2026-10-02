@@ -172,10 +172,7 @@
   const api = Object.freeze({ getNotifications, getUnreadCount, syncFromData, markRead, markAllRead, deleteNotification });
   globalThis.ArenaNotifications = api;
 
-  const currentUser = auth.getCurrentUser();
-  if (!currentUser) return;
-  if (document.querySelector('#profile-content') || document.body.dataset.page === 'notifications') syncFromData(currentUser.userId);
-  refreshNavigationCount();
+  let currentUser = auth.getCurrentUser();
 
   const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
   const dateLabel = (value) => new Intl.DateTimeFormat('en-IN', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
@@ -217,6 +214,7 @@
   }
 
   document.addEventListener('click', (event) => {
+    if (!currentUser) return;
     const filter = event.target.closest('[data-notification-filter]');
     if (filter) {
       document.querySelectorAll('[data-notification-filter]').forEach((button) => {
@@ -241,10 +239,18 @@
     }
   });
 
-  const profilePreview = document.querySelector('#profile-notifications-preview');
-  if (profilePreview) {
-    const unread = getNotifications(currentUser.userId).filter((item) => !item.read).slice(0, 3);
-    renderNotifications(profilePreview, unread, 'No notifications.');
+  function initializeUserNotifications() {
+    currentUser = auth.getCurrentUser();
+    if (!currentUser) return;
+    if (document.querySelector('#profile-content') || document.body.dataset.page === 'notifications') syncFromData(currentUser.userId);
+    refreshNavigationCount();
+    const profilePreview = document.querySelector('#profile-notifications-preview');
+    if (profilePreview) {
+      const unread = getNotifications(currentUser.userId).filter((item) => !item.read).slice(0, 3);
+      renderNotifications(profilePreview, unread, 'No notifications.');
+    }
+    renderPage();
   }
-  renderPage();
+
+  auth.ready.then(initializeUserNotifications);
 })();

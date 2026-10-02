@@ -11,6 +11,7 @@
   <script src="js/pwa.js" defer></script>
   <title>Log in | ARENA X</title>
   <link rel="stylesheet" href="css/style.css">
+  <script src="js/api.js" defer></script>
   <script src="js/auth.js" defer></script>
 </head>
 <body class="auth-page">
@@ -27,13 +28,12 @@
         <form id="login-form" class="auth-form" novalidate>
           <div class="form-field"><label for="identifier">Email or username</label><input id="identifier" name="identifier" type="text" autocomplete="username" placeholder="Enter your email or username" aria-describedby="identifier-error"><span class="field-error" id="identifier-error" data-error-for="identifier"></span></div>
           <div class="form-field"><label for="login-password">Password</label><div class="password-control"><input id="login-password" name="password" type="password" autocomplete="current-password" placeholder="Enter your password" aria-describedby="password-error"><button class="password-toggle" type="button" data-password-toggle="login-password" aria-label="Show password" aria-pressed="false">Show</button></div><span class="field-error" id="password-error" data-error-for="password"></span></div>
-          <div class="form-options"><label class="check-label"><input name="rememberMe" type="checkbox"><span class="check-box" aria-hidden="true"></span><span>Remember me</span></label><a class="form-link" href="#forgot-password" data-auth-action="forgot-password">Forgot password?</a></div>
+          <div class="form-options"><a class="form-link" href="#forgot-password" data-auth-action="forgot-password">Forgot password?</a></div>
           <button class="button button-primary auth-submit" type="submit"><span data-submit-label>Log in</span><span aria-hidden="true">↗</span></button>
         </form>
         <p class="auth-switch">Don't have an account? <a href="signup.html">Create account <span aria-hidden="true">↗</span></a></p>
-        <div class="demo-panel"><div><span class="demo-label">DEMO ONLY</span><p>Username <strong>demo</strong><span class="demo-separator">/</span>Password <strong>Demo@12345</strong></p><small>Development preview only. Never use this credential in production.</small></div><button type="button" class="demo-fill" data-auth-action="fill-demo">Fill demo</button></div>
         <a class="back-home" href="index.html"><span aria-hidden="true">←</span> Back to Home</a>
-        <p class="auth-storage-note">Local-only demo. Passwords are stored as plain text in this browser; never reuse a real password.</p>
+        <p class="auth-storage-note">Your password is never saved in this browser.</p>
       </div>
     </section>
   </main>

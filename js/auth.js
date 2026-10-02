@@ -5,14 +5,48 @@
   const RETURN_KEY = 'arena-x-return-v1';
   const PENDING_TOURNAMENT_KEY = 'arenaX_pendingTournament';
   const NOTIFICATIONS_KEY = 'arenaX_notifications';
-  const DEMO_USERNAME = 'demo';
-  const DEMO_PASSWORD = 'Demo@12345';
+  const apiReady = globalThis.ArenaApi ? Promise.resolve(globalThis.ArenaApi) : new Promise((resolve) => {
+    const script = document.createElement('script');
+    script.src = new URL('js/api.js', document.baseURI).href;
+    script.onload = () => resolve(globalThis.ArenaApi || null);
+    script.onerror = () => resolve(null);
+    document.head.append(script);
+  });
+  const backendApi = Object.freeze({
+    request: async (...args) => {
+      const client = await apiReady;
+      if (!client) throw { code: 'BACKEND_UNAVAILABLE', message: 'Authentication service is unavailable. Please try again later.' };
+      return client.request(...args);
+    }
+  });
+  let backendUser = null;
+  let sessionError = null;
+  let sessionChecked = false;
 
   function isUserRecord(user) {
     return Boolean(user && typeof user === 'object' && !Array.isArray(user)
       && typeof user.userId === 'string' && user.userId.trim()
-      && typeof user.username === 'string' && user.username.trim()
-      && typeof user.password === 'string');
+      && typeof user.username === 'string' && user.username.trim());
+  }
+
+  function removeLegacyCredentials() {
+    try {
+      const raw = localStorage.getItem(USERS_KEY);
+      if (raw !== null) {
+        const users = JSON.parse(raw);
+        if (Array.isArray(users)) {
+          const cleaned = users.map((user) => {
+            if (!user || typeof user !== 'object' || Array.isArray(user)) return user;
+            const { password, passwordHash, sessionToken, sessionTokenHash, accessToken, ...safeUser } = user;
+            return safeUser;
+          });
+          localStorage.setItem(USERS_KEY, JSON.stringify(cleaned));
+        }
+      }
+      localStorage.removeItem(SESSION_KEY);
+    } catch {
+      try { localStorage.removeItem(SESSION_KEY); } catch { /* Storage may be unavailable. */ }
+    }
   }
 
   function readUsersState() {
@@ -70,9 +104,7 @@
       username: user.username,
       email: user.email,
       avatar: user.avatar,
-      createdAt: user.createdAt,
-      role: user.role || (user.isDemo ? 'admin' : 'user'),
-      status: user.status === 'suspended' ? 'suspended' : 'active'
+      createdAt: user.createdAt
     }));
   }
 
@@ -92,88 +124,23 @@
     }
   }
 
-  // Demo credentials remain in localStorage; production authentication and password hashing must be server-side.
-  function createUserRecord(profile) {
-    const initials = profile.fullName.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
-    return {
-      userId: globalThis.crypto?.randomUUID?.() || `user-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-      fullName: profile.fullName.trim(),
-      username: profile.username.trim(),
-      email: profile.email.trim().toLowerCase(),
-      phone: profile.phone.trim(),
-      password: profile.password,
-      dateOfBirth: profile.dateOfBirth,
-      avatar: initials || 'AX',
-      joinedTournaments: [],
-      teamId: null,
-      wins: 0,
-      matches: 0,
-      kills: 0,
-      points: 0,
-      walletBalance: 0,
-      createdAt: new Date().toISOString(),
-      isDemo: false,
-      role: 'user',
-      status: 'active'
-    };
-  }
-
-  function createDemoAdminRecord() {
-    const user = createUserRecord({
-      fullName: 'ARENA X Demo Player',
-      username: DEMO_USERNAME,
-      email: 'demo@arenax.local',
-      phone: '0000000000',
-      password: DEMO_PASSWORD,
-      dateOfBirth: '2000-01-01'
-    });
-    return { ...user, isDemo: true, role: 'admin' };
-  }
-
-  function ensureDemoAccount() {
-    const state = readUsersState();
-    if (!state.valid) return;
-    const users = state.users;
-    const existingIndex = users.findIndex((user) => user.username?.toLowerCase() === DEMO_USERNAME);
-    if (existingIndex >= 0) {
-      const existing = users[existingIndex];
-      const isDemoAdmin = Boolean(existing.isDemo || existing.role === 'admin');
-      const normalized = {
-        ...existing,
-        role: isDemoAdmin ? 'admin' : existing.role || 'user',
-        isDemo: isDemoAdmin,
-        status: ['active', 'suspended'].includes(existing.status) ? existing.status : 'active'
-      };
-      if (normalized.role !== existing.role || normalized.status !== existing.status) {
-        users[existingIndex] = normalized;
-        writeUsers(users);
-      }
-      return;
-    }
-    users.push(createDemoAdminRecord());
-    writeUsers(users);
-  }
-
   function getCurrentUserRecord() {
-    try {
-      const session = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null');
-      const now = Date.now();
-      const maximumSessionExpiry = now + 30 * 24 * 60 * 60 * 1000;
-      if (!session || typeof session !== 'object' || Array.isArray(session)
-        || typeof session.userId !== 'string' || !session.userId.trim()
-        || typeof session.expiresAt !== 'number' || !Number.isFinite(session.expiresAt)
-        || session.expiresAt <= now || session.expiresAt > maximumSessionExpiry) {
-        localStorage.removeItem(SESSION_KEY);
-        return null;
-      }
-      const user = findStoredUserById(session.userId);
-      if (!user || user.status === 'suspended') localStorage.removeItem(SESSION_KEY);
-      if (user?.status === 'suspended') return null;
-      return user || null;
-    } catch {
-      localStorage.removeItem(SESSION_KEY);
-      return null;
-    }
+    if (!backendUser) return null;
+    const cached = findStoredUserById(backendUser.userId) || {};
+    return {
+      userId: backendUser.userId,
+      fullName: backendUser.fullName,
+      username: backendUser.username,
+      email: backendUser.email,
+      avatar: backendUser.avatar,
+      createdAt: backendUser.createdAt,
+      joinedTournaments: Array.isArray(cached.joinedTournaments) ? cached.joinedTournaments : [],
+      teamId: typeof cached.teamId === 'string' ? cached.teamId : null,
+      wins: cached.wins ?? 0,
+      matches: cached.matches ?? 0,
+      kills: cached.kills ?? 0,
+      points: cached.points ?? 0
+    };
   }
 
   function getCurrentUser() {
@@ -181,52 +148,101 @@
   }
 
   function isLoggedIn() {
-    return getCurrentUserRecord() !== null;
+    return backendUser !== null;
   }
 
-  function loginUser(identifier, password, rememberMe = false) {
-    const normalized = String(identifier || '').trim().toLowerCase();
-    const user = readUsers().find((entry) => entry.username?.toLowerCase() === normalized || entry.email?.toLowerCase() === normalized);
-    if (user?.status === 'suspended') return { success: false, message: 'This account is suspended. Contact ARENA X support.' };
-    if (!user || user.password !== password) {
-      return { success: false, message: 'That username/email and password combination was not recognized.' };
-    }
-    const duration = rememberMe ? 30 * 24 * 60 * 60 * 1000 : 8 * 60 * 60 * 1000;
-    try {
-      localStorage.setItem(SESSION_KEY, JSON.stringify({ userId: user.userId, rememberMe, expiresAt: Date.now() + duration }));
-    } catch {
-      return { success: false, message: 'Your browser could not save the login session. Check local storage settings.' };
-    }
-    return { success: true, user: sanitizeUser(user, true) };
-  }
-
-  function registerUser(profile) {
-    if (!profile || typeof profile !== 'object' || Array.isArray(profile)) {
-      return { success: false, message: 'Enter valid account details.' };
-    }
+  function cacheBackendUser(user) {
+    if (!user || typeof user.userId !== 'string' || typeof user.username !== 'string') return false;
+    backendUser = {
+      userId: user.userId,
+      fullName: user.fullName,
+      username: user.username,
+      email: user.email,
+      avatar: user.avatar ?? null,
+      createdAt: user.createdAt
+    };
     const users = readUsers();
-    const fullName = String(profile.fullName || '').trim();
-    const username = String(profile.username || '').trim();
-    const email = String(profile.email || '').trim().toLowerCase();
-    const phone = String(profile.phone || '').trim();
-    const password = String(profile.password || '');
-    const dateOfBirth = String(profile.dateOfBirth || '');
-    if (fullName.length < 2 || !/^[a-zA-Z0-9_]{3,20}$/.test(username)
-      || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email) || !phone || password.length < 8
-      || !dateOfBirth || Number.isNaN(Date.parse(dateOfBirth)) || new Date(dateOfBirth) > new Date()) {
-      return { success: false, message: 'Enter valid account details.' };
+    const index = users.findIndex((entry) => entry.userId === backendUser.userId);
+    const cached = index >= 0 ? users[index] : {
+      userId: backendUser.userId,
+      joinedTournaments: [],
+      teamId: null,
+      wins: 0,
+      matches: 0,
+      kills: 0,
+      points: 0
+    };
+    const safeProfile = { ...cached, ...backendUser };
+    delete safeProfile.password;
+    delete safeProfile.passwordHash;
+    delete safeProfile.role;
+    delete safeProfile.status;
+    delete safeProfile.isDemo;
+    if (index >= 0) users[index] = safeProfile;
+    else users.push(safeProfile);
+    writeUsers(users);
+    return true;
+  }
+
+  async function checkSession() {
+    const hadUser = Boolean(backendUser);
+    try {
+      const response = await backendApi.request('/api/auth/me');
+      if (!cacheBackendUser(response.user)) throw new Error('Invalid authentication response.');
+      sessionError = null;
+    } catch (error) {
+      if (!hadUser || error?.code === 'UNAUTHORIZED') backendUser = null;
+      sessionError = error;
     }
-    if (users.some((user) => user.username?.toLowerCase() === username.toLowerCase())) {
-      return { success: false, field: 'username', message: 'That username is already in use.' };
+    sessionChecked = true;
+    return backendUser;
+  }
+
+  function authFailure(error) {
+    const messages = {
+      UNAUTHORIZED: 'Email/username or password was not recognized. Check your details or account status.',
+      CONFLICT: 'An account with those details already exists.',
+      BAD_REQUEST: 'Check the details and try again.',
+      FORBIDDEN: 'This action is not allowed from this website.',
+      RATE_LIMITED: 'Too many attempts. Please wait and try again.',
+      NETWORK: 'Could not reach the authentication service. Check your connection or backend configuration.',
+      BACKEND_UNAVAILABLE: 'Authentication service is unavailable. Please try again later.'
+    };
+    return messages[error?.code] || 'Authentication service is unavailable. Please try again later.';
+  }
+
+  async function loginUser(identifier, password) {
+    try {
+      if (!sessionChecked) await ready;
+      await backendApi.request('/api/auth/login', { method: 'POST', body: { identifier, password } });
+      await checkSession();
+      if (!backendUser) return { success: false, message: 'Login could not be verified. Please try again.' };
+      return { success: true, user: getCurrentUser() };
+    } catch (error) {
+      return { success: false, message: authFailure(error) };
     }
-    if (users.some((user) => user.email?.toLowerCase() === email)) {
-      return { success: false, field: 'email', message: 'That email address is already registered.' };
+  }
+
+  async function registerUser(profile) {
+    try {
+      if (!sessionChecked) await ready;
+      await backendApi.request('/api/auth/register', {
+        method: 'POST',
+        body: {
+          fullName: profile.fullName,
+          username: profile.username,
+          email: profile.email,
+          password: profile.password,
+          phone: profile.phone,
+          dateOfBirth: profile.dateOfBirth
+        }
+      });
+      await checkSession();
+      if (!backendUser) return { success: false, message: 'Your account was created, but login could not be verified. Please log in.' };
+      return { success: true, user: getCurrentUser() };
+    } catch (error) {
+      return { success: false, message: authFailure(error) };
     }
-    const user = createUserRecord({ fullName, username, email, phone, password, dateOfBirth });
-    if (!writeUsers([...users, user])) {
-      return { success: false, message: 'Your browser could not save this account. Check local storage settings.' };
-    }
-    return { success: true, user: sanitizeUser(user, true) };
   }
 
   function canUpdateTeamMembership(actor, userId, teamId) {
@@ -283,7 +299,7 @@
       return { success: true, user: sanitizeUser(users[index], userId === actor.userId) };
     }
 
-    const profileFields = new Set(['fullName', 'username', 'email', 'phone', 'dateOfBirth', 'avatar', 'password']);
+    const profileFields = new Set(['fullName', 'username', 'email', 'phone', 'dateOfBirth', 'avatar']);
     if (userId !== actor.userId || keys.length === 0 || !keys.every((key) => profileFields.has(key))) {
       return { success: false, message: 'Account update is not authorized.' };
     }
@@ -298,7 +314,6 @@
       cleanUpdates.email = cleanUpdates.email.toLowerCase();
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(cleanUpdates.email)) return { success: false, field: 'email', message: 'Enter a valid email address.' };
     }
-    if (cleanUpdates.password !== undefined && cleanUpdates.password.length < 8) return { success: false, field: 'password', message: 'Use at least 8 characters.' };
     if (cleanUpdates.dateOfBirth !== undefined && (!cleanUpdates.dateOfBirth || Number.isNaN(Date.parse(cleanUpdates.dateOfBirth)) || new Date(cleanUpdates.dateOfBirth) > new Date())) {
       return { success: false, field: 'dateOfBirth', message: 'Enter a valid date in the past.' };
     }
@@ -332,12 +347,16 @@
     return Number.isFinite(balance) && balance >= 0 ? balance : 0;
   }
 
-  function logoutUser() {
+  async function logoutUser() {
     try {
-      localStorage.removeItem(SESSION_KEY);
-      return true;
+      await backendApi.request('/api/auth/logout', { method: 'POST' });
+      backendUser = null;
+      sessionError = null;
+      return { success: true };
     } catch {
-      return false;
+      backendUser = null;
+      sessionError = { code: 'BACKEND_UNAVAILABLE' };
+      return { success: false };
     }
   }
 
@@ -372,7 +391,8 @@
     }
   }
 
-  function requireLogin() {
+  async function requireLogin() {
+    if (!sessionChecked) await ready;
     if (isLoggedIn()) return true;
     const page = location.pathname.split('/').pop();
     const teamId = page === 'team.html' ? new URLSearchParams(location.search).get('id') : null;
@@ -380,33 +400,37 @@
       ? (teamId && /^[a-z0-9_-]+$/i.test(teamId) ? `team.html?id=${teamId}` : 'my-team.html')
       : ['profile.html', 'my-tournaments.html', 'my-team.html', 'notifications.html', 'wallet.html', 'admin.html'].includes(page) ? page : 'index.html';
     saveReturnTarget(target);
-    const message = page === 'profile.html' ? 'Log in is required to view your profile.'
+    const message = sessionError?.code === 'UNAUTHORIZED' ? 'You need an active session. Log in to continue.'
+      : sessionError ? 'Authentication service is unavailable. Please try again when the backend is reachable.'
+        : page === 'profile.html' ? 'Log in is required to view your profile.'
         : page === 'notifications.html' ? 'Log in is required to view your notifications.'
           : page === 'wallet.html' ? 'Log in is required to view your wallet.'
-        : page === 'admin.html' ? 'Log in to request local demo admin access.'
+        : page === 'admin.html' ? 'Log in to continue to Admin.'
         : 'Log in is required to view your team.';
-    saveNotice(message, 'info');
+    saveNotice(message, sessionError && sessionError.code !== 'UNAUTHORIZED' ? 'error' : 'info');
     location.replace('login.html');
     return false;
   }
 
   function getCurrentUserRole() {
-    return getCurrentUserRecord()?.role === 'admin' ? 'admin' : 'user';
+    return 'user';
   }
 
   function isAdmin() {
     return getCurrentUserRole() === 'admin';
   }
 
-  function requireAdmin() {
+  async function requireAdmin() {
+    if (!sessionChecked) await ready;
     if (isAdmin()) return true;
     if (!isLoggedIn()) {
       saveReturnTarget('admin.html');
-      saveNotice('Log in with the local demo admin account to open Admin.', 'info');
+      const unavailable = sessionError && sessionError.code !== 'UNAUTHORIZED';
+      saveNotice(unavailable ? 'Authentication service is unavailable. Please try again later.' : 'Log in to continue to Admin.', unavailable ? 'error' : 'info');
       location.replace('login.html');
       return false;
     }
-    saveNotice('Admin access is restricted to the local demo admin account.', 'info');
+    saveNotice('Admin access cannot be confirmed by the current authentication API.', 'info');
     location.replace('index.html');
     return false;
   }
@@ -694,8 +718,7 @@
         return;
       }
       setBusy(form, true, 'Creating account...');
-      await new Promise((resolve) => window.setTimeout(resolve, 220));
-      const result = registerUser({
+      const result = await registerUser({
         fullName: validation.values.fullName,
         username: validation.values.username,
         email: validation.values.email,
@@ -710,12 +733,6 @@
         } else {
           showMessage(message, result.message);
         }
-        setBusy(form, false, 'Create account');
-        return;
-      }
-      const login = loginUser(result.user.username, validation.values.password, true);
-      if (!login.success) {
-        showMessage(message, login.message);
         setBusy(form, false, 'Create account');
         return;
       }
@@ -750,8 +767,7 @@
         return;
       }
       setBusy(form, true, 'Logging in...');
-      await new Promise((resolve) => window.setTimeout(resolve, 220));
-      const result = loginUser(identifier, password, data.has('rememberMe'));
+      const result = await loginUser(identifier, password);
       if (!result.success) {
         showMessage(message, result.message);
         setBusy(form, false, 'Log in');
@@ -780,27 +796,27 @@
     document.addEventListener('click', (event) => {
       const action = event.target.closest('[data-auth-action]')?.dataset.authAction;
       if (action === 'logout') {
-        logoutUser();
-        saveNotice('You have been logged out.', 'info');
-        location.assign('index.html');
+        event.preventDefault();
+        actionLogout();
       } else if (action === 'forgot-password') {
         event.preventDefault();
-        showMessage(document.querySelector('.auth-message'), 'Password recovery is unavailable for local demo accounts. Create a new account or use the DEMO ONLY credentials.', 'info');
-      } else if (action === 'fill-demo') {
-        event.preventDefault();
-        const login = document.querySelector('#login-form');
-        if (login) {
-          login.elements.namedItem('identifier').value = DEMO_USERNAME;
-          login.elements.namedItem('password').value = DEMO_PASSWORD;
-          fieldError(login, 'identifier');
-          fieldError(login, 'password');
-        }
+        showMessage(document.querySelector('.auth-message'), 'Password recovery is not available yet.', 'info');
       }
     });
+
+    async function actionLogout() {
+      const result = await logoutUser();
+      saveNotice(result.success ? 'You have been logged out.' : 'You were signed out here, but the authentication service could not confirm server logout.', result.success ? 'info' : 'error');
+      location.assign('index.html');
+    }
   }
 
-  ensureDemoAccount();
+  removeLegacyCredentials();
+  const ready = checkSession();
   const api = Object.freeze({
+    ready,
+    checkSession,
+    sessionError: () => sessionError,
     isLoggedIn,
     getCurrentUser,
     getUsers,
@@ -823,12 +839,35 @@
   });
   globalThis.ArenaAuth = api;
 
-  ensureTournamentNavigation();
-  renderHeaderAccount();
+  if (document.body.dataset.protected === 'true' || document.body.dataset.page === 'admin') {
+    document.documentElement.style.visibility = 'hidden';
+  }
   attachPasswordToggles();
   setupAuthNavigation();
   setupSignupForm();
   setupLoginForm();
-
-  if (document.body.dataset.protected === 'true' && requireLogin()) renderProfile();
+  ready.then(async () => {
+    ensureTournamentNavigation();
+    renderHeaderAccount();
+    document.dispatchEvent(new CustomEvent('arena:session-ready', { detail: { authenticated: isLoggedIn() } }));
+    if (document.body.dataset.protected === 'true') {
+      if (await requireLogin()) {
+        document.documentElement.style.visibility = '';
+        renderProfile();
+      }
+    }
+  });
+  async function refreshSession() {
+    if (!isLoggedIn()) return;
+    await checkSession();
+    renderHeaderAccount();
+    ensureTournamentNavigation();
+    if (sessionError?.code !== 'UNAUTHORIZED') return;
+    if (document.body.dataset.protected === 'true') await requireLogin();
+    else showToast('Your session is no longer valid. Log in again to continue.');
+  }
+  window.setInterval?.(refreshSession, 300000);
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) refreshSession();
+  });
 })();

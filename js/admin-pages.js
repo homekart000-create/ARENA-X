@@ -1,8 +1,14 @@
 (() => {
   const auth = globalThis.ArenaAuth;
   const admin = globalThis.ArenaAdmin;
-  if (!auth || !admin || document.body.dataset.page !== 'admin' || !auth.requireAdmin()) return;
+  if (!auth || !admin || document.body.dataset.page !== 'admin') return;
 
+  auth.ready.then(async () => {
+    if (!await auth.requireAdmin()) return;
+    initializeAdminPage();
+  });
+
+  function initializeAdminPage() {
   const user = auth.getCurrentUser();
   const app = document.querySelector('#admin-app');
   const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
@@ -172,5 +178,7 @@
   });
 
   app.hidden = false;
+  document.documentElement.style.visibility = '';
   renderAll();
+  }
 })();
