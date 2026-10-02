@@ -10,7 +10,6 @@
     return Number.isNaN(date.getTime()) ? 'Date pending' : new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }).format(date);
   };
   const dateLabel = formatDate;
-  const MAX_TEAM_SIZE = 4;
   let teamDialog;
   let pendingConfirmation = null;
 
@@ -72,11 +71,11 @@
     dialog.showModal();
   }
 
-  function runPendingConfirmation() {
+  async function runPendingConfirmation() {
     if (!pendingConfirmation) return;
     const action = pendingConfirmation;
     pendingConfirmation = null;
-    const result = action();
+    const result = await action();
     teamDialog.close();
     if (!result.success) {
       showToast(result.message, true);
@@ -89,6 +88,10 @@
   function renderInvitations() {
     const list = document.querySelector('#team-invitations-list');
     if (!list) return;
+    if (!teams.areInvitationListsAvailable()) {
+      list.textContent = 'The current backend API does not provide an invitation inbox or invitation list.';
+      return;
+    }
     const invitations = teams.getUserInvitations();
     list.innerHTML = invitations.length ? invitations.map((invitation) => {
       const sender = auth.getUserById(invitation.senderId);
@@ -96,46 +99,47 @@
     }).join('') : '<p class="team-invitation-empty">No pending team invitations.</p>';
   }
 
-  function renderTeamDashboard(team, memberView = false) {
+  function renderTeamDashboard(team) {
     const currentUser = auth.getCurrentUser();
     const isCaptain = team.ownerId === currentUser.userId;
-    const stats = teams.getTeamStats(team.teamId);
     const members = team.members || [];
-    const registrations = teams.getTeamTournamentRegistrations(team.teamId)
-      .sort((first, second) => new Date(second.registeredAt) - new Date(first.registeredAt))
-      .slice(0, 4);
-    const recent = registrations.map((registration) => {
-      const tournament = tournamentStore?.getTournamentById(registration.tournamentId);
-      if (!tournament) return '';
-      return `<a class="team-recent-event" href="tournament.html?id=${encodeURIComponent(tournament.id)}"><span><strong>${escapeHtml(tournament.name)}</strong><small>${escapeHtml(tournament.type)} · ${dateLabel(tournament.startDate)}</small></span><span class="card-status status-${escapeHtml(tournament.status.toLowerCase())}">${escapeHtml(tournament.status.toUpperCase())}</span></a>`;
-    }).join('');
-    const pendingInvites = isCaptain ? teams.getTeamInvitations(team.teamId).filter((invite) => invite.status === 'PENDING') : [];
-    const invitationMarkup = isCaptain ? `<section class="team-panel"><div class="team-section-heading"><div><p class="eyebrow"><span class="eyebrow-line"></span> ROSTER MANAGEMENT</p><h2>Invite <span>players.</span></h2></div></div><form class="team-invite-form" data-team-invite-form="${escapeHtml(team.teamId)}"><label for="team-invite-username">Username</label><div><input id="team-invite-username" name="username" type="text" autocomplete="off" placeholder="Search by username"><button class="button button-primary" type="submit">Send invite <span aria-hidden="true">↗</span></button></div><p class="team-invite-result" aria-live="polite"></p></form><div class="team-pending-invites">${pendingInvites.length ? pendingInvites.map((invite) => `<p><span>${escapeHtml(auth.getUserById(invite.receiverId)?.username || 'Player')}</span><b>PENDING</b></p>`).join('') : '<p class="team-invitation-empty">No outgoing invitations.</p>'}</div></section>` : '';
     const memberCards = members.map((member) => `<article class="team-member-card"><span class="team-member-avatar">${escapeHtml(member.avatar || member.username.slice(0, 2).toUpperCase())}</span><div class="team-member-identity"><strong>${escapeHtml(member.username)}</strong><span>${escapeHtml(member.fullName)}</span><small>Joined ${formatDate(member.joinedAt)}</small></div><span class="team-role-badge ${member.role === 'CAPTAIN' ? 'is-captain' : ''}">${escapeHtml(member.role)}</span>${isCaptain && member.userId !== team.ownerId ? `<button class="team-icon-action" type="button" aria-label="Remove ${escapeHtml(member.username)}" data-team-action="remove-member" data-user-id="${escapeHtml(member.userId)}">×</button>` : ''}</article>`).join('');
-    const transferOptions = members.filter((member) => member.userId !== currentUser.userId).map((member) => `<option value="${escapeHtml(member.userId)}">${escapeHtml(member.username)}</option>`).join('');
+    const invitationMarkup = isCaptain ? `<section class="team-panel"><div class="team-section-heading"><div><p class="eyebrow"><span class="eyebrow-line"></span> ROSTER MANAGEMENT</p><h2>Invite <span>players.</span></h2></div></div><form class="team-invite-form" data-team-invite-form="${escapeHtml(team.teamId)}"><label for="team-invite-username">Username</label><div><input id="team-invite-username" name="username" type="text" autocomplete="off" placeholder="Search by username"><button class="button button-primary" type="submit">Send invite <span aria-hidden="true">↗</span></button></div><p class="team-invite-result" aria-live="polite"></p></form><p class="team-invitation-empty">Invitation lists are not available from the current backend API.</p></section>` : '';
+    const unavailable = '<p class="team-invitation-empty">Not available from the current backend API.</p>';
     return `<section class="team-overview-panel"><div class="team-cover tournament-banner-${escapeHtml(team.logo || 'ember')}"><span class="team-avatar-large">${escapeHtml(team.logo || team.teamTag.slice(0, 3))}</span><span class="team-cover-stamp">TEAM / ${escapeHtml(team.teamTag)}</span></div><div class="team-overview-copy"><div><p class="eyebrow"><span class="eyebrow-line"></span> ${isCaptain ? 'CAPTAIN' : 'MEMBER'} / ACTIVE ROSTER</p><h2>${escapeHtml(team.teamName)} <span>[${escapeHtml(team.teamTag)}]</span></h2><p>${escapeHtml(team.description || 'Ready for the next battle.')}</p></div>${isCaptain ? '<div class="team-overview-actions"><button class="button button-outline" type="button" data-team-action="edit">Edit Team</button><button class="button button-primary" type="button" data-team-action="invite">Invite Player <span aria-hidden="true">↗</span></button></div>' : ''}</div></section>
-      <section class="team-stats-grid" aria-label="Team statistics"><div><strong>${stats.tournamentsJoined}</strong><span>TOURNAMENTS JOINED</span></div><div><strong>${stats.wins}</strong><span>WINS</span></div><div><strong>${stats.matches}</strong><span>MATCHES</span></div><div><strong>${stats.kills}</strong><span>KILLS</span></div><div><strong>${stats.points}</strong><span>POINTS</span></div></section>
-      <div class="team-dashboard-grid"><section class="team-panel"><div class="team-section-heading"><div><p class="eyebrow"><span class="eyebrow-line"></span> TEAM OVERVIEW</p><h2>Your <span>roster.</span></h2></div><span class="team-member-count">${members.length} / ${MAX_TEAM_SIZE} MEMBERS</span></div><div class="team-capacity-track" role="progressbar" aria-label="Team capacity" aria-valuemin="0" aria-valuemax="4" aria-valuenow="${members.length}"><span style="width:${members.length / MAX_TEAM_SIZE * 100}%"></span></div><div class="team-member-list">${memberCards}</div>${isCaptain && transferOptions ? `<form class="team-transfer-form" data-team-transfer-form="${escapeHtml(team.teamId)}"><label for="captain-transfer">Transfer captain</label><div><select id="captain-transfer" name="memberId">${transferOptions}</select><button class="button button-outline" type="submit">Transfer role</button></div></form>` : ''}<button class="team-leave-button" type="button" data-team-action="leave">${isCaptain && members.length > 1 ? 'Transfer captain before leaving' : 'Leave Team'}</button></section>
-      <section class="team-panel"><div class="team-section-heading"><div><p class="eyebrow"><span class="eyebrow-line"></span> TOURNAMENT HISTORY</p><h2>Recent <span>battles.</span></h2></div></div><div class="team-recent-list">${recent || '<p class="team-invitation-empty">No team tournaments yet.</p>'}</div><a class="text-link" href="tournaments.html">Explore tournaments <span aria-hidden="true">↗</span></a></section>${invitationMarkup}</div>`;
+      <section class="team-stats-grid" aria-label="Team statistics"><div><strong>—</strong><span>TOURNAMENTS JOINED</span></div><div><strong>—</strong><span>WINS</span></div><div><strong>—</strong><span>MATCHES</span></div><div><strong>—</strong><span>KILLS</span></div><div><strong>—</strong><span>POINTS</span></div></section>
+      <div class="team-dashboard-grid"><section class="team-panel"><div class="team-section-heading"><div><p class="eyebrow"><span class="eyebrow-line"></span> TEAM OVERVIEW</p><h2>Your <span>roster.</span></h2></div><span class="team-member-count">${members.length} MEMBERS</span></div><div class="team-member-list">${memberCards}</div><p class="team-invitation-empty">Captain transfer and self-leave are not supported by the current backend API.</p><button class="team-leave-button" type="button" data-team-action="leave">Leave Team</button></section>
+      <section class="team-panel"><div class="team-section-heading"><div><p class="eyebrow"><span class="eyebrow-line"></span> TOURNAMENT HISTORY</p><h2>Recent <span>battles.</span></h2></div></div><div class="team-recent-list">${unavailable}</div><a class="text-link" href="tournaments.html">Explore tournaments <span aria-hidden="true">↗</span></a></section>${invitationMarkup}</div>`;
   }
 
-  function renderTeamPage() {
+  async function renderTeamPage() {
     const loading = document.querySelector('#team-loading');
     const empty = document.querySelector('#team-empty');
     const dashboard = document.querySelector('#team-dashboard');
     if (!dashboard || !auth.isLoggedIn()) return;
     loading.hidden = true;
     const requestedId = new URLSearchParams(location.search).get('id');
-    const team = requestedId ? teams.getTeamById(requestedId) : teams.getUserTeam();
+    let team = null;
+    try {
+      team = requestedId ? await teams.loadTeam(requestedId) : teams.getUserTeam();
+    } catch (error) {
+      empty.hidden = false;
+      dashboard.hidden = true;
+      empty.querySelector('h2').textContent = error.message;
+      empty.querySelector('p').textContent = 'Team information could not be loaded from the backend.';
+      return;
+    }
     if (!team || !team.members.some((member) => member.userId === auth.getCurrentUser().userId)) {
       dashboard.hidden = true;
       empty.hidden = false;
+      empty.querySelector('h2').textContent = 'Team is not available';
+      empty.querySelector('p').textContent = 'The current backend API cannot list teams for your account. Use an existing team link, or submit a create request; the server will check current membership.';
       renderInvitations();
       return;
     }
     empty.hidden = true;
     dashboard.hidden = false;
-    dashboard.innerHTML = renderTeamDashboard(team, document.body.dataset.page === 'team');
+    dashboard.innerHTML = renderTeamDashboard(team);
     renderInvitations();
   }
 
@@ -146,7 +150,7 @@
     const container = teamField.closest('div');
     container.querySelectorAll('.profile-team-extra').forEach((node) => node.remove());
     if (!team) {
-      teamField.textContent = 'No team';
+      teamField.textContent = 'Team details unavailable';
       const link = document.createElement('a');
       link.className = 'profile-team-link profile-team-extra';
       link.href = 'my-team.html';
@@ -169,19 +173,19 @@
     container.append(logo, role, link);
   }
 
-  function showTeamResult(result) {
+  async function showTeamResult(result) {
     if (!result.success) {
       showToast(result.message, true);
       return;
     }
     teamDialog?.close();
     showToast(result.message || 'Team updated.');
-    renderTeamPage();
+    await renderTeamPage();
     renderInvitations();
     renderProfileTeam();
   }
 
-  function teamAction(action, button) {
+  async function teamAction(action, button) {
     const currentTeam = teams.getUserTeam();
     if (action === 'create') {
       openTeamForm('create');
@@ -190,9 +194,9 @@
     } else if (action === 'invite' && currentTeam) {
       document.querySelector('#team-invite-username')?.focus();
     } else if (action === 'accept-invite') {
-      showTeamResult(teams.acceptTeamInvitation(button.dataset.id));
+      await showTeamResult(await teams.acceptTeamInvitation(button.dataset.id));
     } else if (action === 'decline-invite') {
-      showTeamResult(teams.declineTeamInvitation(button.dataset.id));
+      await showTeamResult(await teams.declineTeamInvitation(button.dataset.id));
     } else if (action === 'remove-member' && currentTeam) {
       const member = currentTeam.members.find((entry) => entry.userId === button.dataset.userId);
       if (!member) return;
@@ -203,15 +207,15 @@
   }
 
   function setupTeamForms() {
-    document.addEventListener('submit', (event) => {
+    document.addEventListener('submit', async (event) => {
       const form = event.target;
       if (form.matches('#team-form')) {
         event.preventDefault();
         const values = Object.fromEntries(new FormData(form).entries());
         const message = form.querySelector('[data-team-message]');
-        const result = form.dataset.mode === 'edit'
+        const result = await (form.dataset.mode === 'edit'
           ? teams.updateTeam(teams.getUserTeam()?.teamId, values)
-          : teams.createTeam(values);
+          : teams.createTeam(values));
         if (!result.success) {
           message.textContent = result.message;
           if (result.field) form.elements.namedItem(result.field)?.focus();
@@ -219,11 +223,11 @@
         }
         teamDialog.close();
         showToast(form.dataset.mode === 'edit' ? 'Team details updated.' : `${result.team.teamName} is ready. You are the captain.`);
-        renderTeamPage();
+        await renderTeamPage();
         renderProfileTeam();
       } else if (form.matches('[data-team-invite-form]')) {
         event.preventDefault();
-        const result = teams.sendTeamInvitation(form.dataset.teamInviteForm, new FormData(form).get('username'));
+        const result = await teams.sendTeamInvitation(form.dataset.teamInviteForm, new FormData(form).get('username'));
         const feedback = form.querySelector('.team-invite-result');
         feedback.textContent = result.success ? `Invitation sent to ${result.invitation.receiverId}.` : result.message;
         feedback.classList.toggle('is-error', !result.success);
@@ -242,9 +246,9 @@
     });
   }
 
-  document.addEventListener('click', (event) => {
+  document.addEventListener('click', async (event) => {
     const button = event.target.closest('[data-team-action]');
-    if (button) teamAction(button.dataset.teamAction, button);
+    if (button) await teamAction(button.dataset.teamAction, button);
   });
   document.addEventListener('input', (event) => {
     if (!event.target.matches('#team-invite-username')) return;
@@ -255,12 +259,9 @@
   });
   setupTeamForms();
 
-  if (document.querySelector('#team-dashboard')) renderTeamPage();
-  if (document.querySelector('#team-invitations-list')) renderInvitations();
-  if (document.querySelector('#profile-content')) renderProfileTeam();
-  auth.ready.then(() => {
+  Promise.all([auth.ready, teams.ready]).then(async () => {
     if (!auth.isLoggedIn()) return;
-    if (document.querySelector('#team-dashboard')) renderTeamPage();
+    if (document.querySelector('#team-dashboard')) await renderTeamPage();
     if (document.querySelector('#team-invitations-list')) renderInvitations();
     if (document.querySelector('#profile-content')) renderProfileTeam();
   });

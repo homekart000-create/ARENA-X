@@ -11,6 +11,19 @@
   const content = document.querySelector('#profile-content');
   if (!user || !content || !tournaments || !teams || !matches || !leaderboard) return;
 
+  if (!tournaments.getMyTournamentsAvailable() || !teams.areTournamentRegistrationsAvailable() || !matches.getMyMatchesAvailable()) {
+    content.querySelector('#profile-dashboard')?.remove();
+    const dashboard = document.createElement('section');
+    dashboard.className = 'profile-dashboard-section';
+    dashboard.id = 'profile-dashboard';
+    dashboard.innerHTML = '<div class="profile-dashboard-section-heading"><div><p class="eyebrow"><span class="eyebrow-line"></span> COMPETITION DATA</p><h2>History <span>unavailable.</span></h2></div></div><p class="dashboard-empty-copy">The current backend API does not list your tournament registrations, team history, or personal matches. No local competition records are used as a fallback.</p>';
+    content.querySelector('.profile-stats')?.after(dashboard);
+    const clearLocalStats = () => document.querySelectorAll('[data-profile-stat]').forEach((element) => { element.textContent = '—'; });
+    clearLocalStats();
+    window.setTimeout(clearLocalStats, 0);
+    return;
+  }
+
   const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
   const dateLabel = (value) => value ? new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date(`${value}T12:00:00`)) : 'Date pending';
   const dateTimeLabel = (value) => value ? new Intl.DateTimeFormat('en-IN', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : 'Date not recorded';
@@ -89,7 +102,7 @@
       const member = team.members.find((entry) => entry.userId === user.userId);
       const standing = teamStandings.find((entry) => entry.teamId === team.teamId);
       const standingLabel = standing ? `Team rank #${standing.rank} · ${standing.totalPoints} points · ${standing.wins} wins` : 'No team match results yet.';
-      return `<a class="dashboard-team-row" href="team.html?id=${encodeURIComponent(team.teamId)}"><span><strong>${escapeHtml(team.teamName)} <em>[${escapeHtml(team.teamTag)}]</em></strong><small>${escapeHtml(member?.role || 'MEMBER')} · ${team.members.length} / 4 members</small><small>${standingLabel}</small></span><span aria-hidden="true">↗</span></a>`;
+      return `<a class="dashboard-team-row" href="team.html?id=${encodeURIComponent(team.teamId)}"><span><strong>${escapeHtml(team.teamName)} <em>[${escapeHtml(team.teamTag)}]</em></strong><small>${escapeHtml(member?.role || 'MEMBER')} · ${team.members.length} members</small><small>${standingLabel}</small></span><span aria-hidden="true">↗</span></a>`;
     }).join('');
   }
 

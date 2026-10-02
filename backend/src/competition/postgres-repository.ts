@@ -74,6 +74,7 @@ interface MatchRow {
   status: MatchView['status'];
   max_participants: number;
   visibility: 'public' | 'private';
+  room_visible?: boolean;
   map: string;
   instructions: string;
   created_at: Date | string;
@@ -152,7 +153,7 @@ function mapTeam(row: TeamRow, members: readonly TeamMemberRow[]): TeamView {
   };
 }
 
-function mapMatch(row: MatchRow, result?: MatchView['result']): MatchView {
+function mapMatch(row: MatchRow, result?: MatchView['result'], includeRoomVisibility = false): MatchView {
   return {
     matchId: row.id,
     tournamentId: row.tournament_id,
@@ -166,6 +167,7 @@ function mapMatch(row: MatchRow, result?: MatchView['result']): MatchView {
     instructions: row.instructions,
     maxPlayers: row.max_participants,
     visibility: row.visibility,
+    ...(includeRoomVisibility ? { roomVisible: row.room_visible ?? false } : {}),
     participantCount: Number(row.participant_count),
     ...(result ? { result } : {}),
     createdAt: timestamp(row.created_at),
@@ -554,10 +556,11 @@ export class PostgresCompetitionRepository implements CompetitionRepository {
     const result = await db.query<MatchRow>(
       `SELECT m.id::text AS id, m.tournament_id::text AS tournament_id, m.match_number, m.title,
         m.game, m.mode, m.starts_at, m.status, m.max_participants, m.visibility, m.map, m.instructions,
-        m.created_at, m.updated_at,
+        m.created_at, m.updated_at, rc.room_visible,
         (SELECT count(*) FROM match_participants mp WHERE mp.match_id=m.id AND mp.status='eligible') AS participant_count,
         entry.winner_name_snapshot, entry.placement, entry.points, entry.kills, entry.remarks
        FROM matches m
+       LEFT JOIN match_room_credentials rc ON rc.match_id=m.id
        LEFT JOIN LATERAL (
          SELECT e.winner_name_snapshot, e.placement, e.points, e.kills, e.remarks
          FROM match_result_submissions s JOIN match_result_entries e ON e.submission_id=s.id
@@ -576,7 +579,7 @@ export class PostgresCompetitionRepository implements CompetitionRepository {
       kills: Number(row.kills ?? 0),
       remarks: row.remarks ?? ''
     };
-    return mapMatch(row, publicResult);
+    return mapMatch(row, publicResult, includePrivate);
   }
 
   async listMatches(includePrivate: boolean): Promise<readonly MatchView[]> {

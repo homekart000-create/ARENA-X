@@ -1,29 +1,5 @@
-const matches = window.ArenaMatches.getMatches().filter((match) => match.homeFeatured).map((match) => {
-  const display = match.homeDisplay && typeof match.homeDisplay === 'object' ? match.homeDisplay : {};
-  const status = String(match.status || 'upcoming').toLowerCase();
-  const matchDate = new Date(`${String(match.date || '')}T12:00:00`);
-  const dateLabel = Number.isNaN(matchDate.getTime())
-    ? 'DATE TBD'
-    : new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short' }).format(matchDate);
-  return {
-    ...display,
-    matchId: match.matchId,
-    event: display.event || match.title || 'Match details pending',
-    state: status === 'live' ? 'LIVE NOW' : status === 'upcoming' ? 'UP NEXT' : status.toUpperCase(),
-    live: status === 'live',
-    first: display.first || 'TBD',
-    second: display.second || 'TBD',
-    score: display.score || dateLabel,
-    detail: display.detail || `${match.mode || 'Mode pending'} / ${match.map || 'Map pending'}`
-  };
-});
-
-const players = [
-  { name: 'ShadowX', squad: 'NOVA ESPORTS', wins: 38, kills: 214, points: 2840 },
-  { name: 'RiyaRush', squad: 'TEAM PHOENIX', wins: 32, kills: 196, points: 2615 },
-  { name: 'AceClutch', squad: 'SOLO QUEUE', wins: 29, kills: 188, points: 2490 },
-  { name: 'K1NGx', squad: 'RAVEN GAMING', wins: 27, kills: 173, points: 2310 }
-];
+let matches = [];
+const players = [];
 
 const tournamentGrid = document.querySelector('#tournament-grid');
 const emptyState = document.querySelector('#tournament-empty');
@@ -59,11 +35,22 @@ function renderTournaments(game = activeHomeGame) {
   tournamentGrid.hidden = filtered.length === 0;
   emptyState.hidden = filtered.length !== 0;
   const note = document.querySelector('.listing-note');
-  note.innerHTML = `<span class="live-pulse"></span> ${String(filtered.length).padStart(2, '0')} EVENTS LISTED`;
+  note.innerHTML = window.ArenaTournaments.getError()
+    ? '<span class="live-pulse"></span> TOURNAMENT BACKEND UNAVAILABLE'
+    : `<span class="live-pulse"></span> ${String(filtered.length).padStart(2, '0')} EVENTS LISTED`;
+  if (window.ArenaTournaments.getError()) {
+    emptyState.querySelector('h2').textContent = 'Tournament backend unavailable';
+    emptyState.querySelector('p').textContent = window.ArenaTournaments.getError().message;
+  }
 }
 
 function renderMatches() {
-  document.querySelector('#match-grid').innerHTML = matches.map((match) => {
+  const grid = document.querySelector('#match-grid');
+  if (window.ArenaMatches.getError()) {
+    grid.textContent = window.ArenaMatches.getError().message;
+    return;
+  }
+  grid.innerHTML = matches.map((match) => {
     const first = String(match.first ?? 'TBD');
     const second = String(match.second ?? 'TBD');
     return `<article class="match-card">
@@ -75,13 +62,23 @@ function renderMatches() {
 }
 
 function renderPlayers() {
+  if (players.length === 0) {
+    document.querySelector('#leaderboard-table').textContent = 'Leaderboard data is not available from the current backend API.';
+    return;
+  }
   const avatarTones = ['#d2fa47', '#f58b63', '#79bbc0', '#f2c45a'];
   document.querySelector('#leaderboard-table').innerHTML = players.map((player, index) => `<div class="player-row" role="listitem"><span class="player-rank">0${index + 1}</span><div class="player-ident"><span class="player-avatar" style="--avatar-tone:${avatarTones[index % avatarTones.length]}" aria-hidden="true">${player.name.slice(0, 2).toUpperCase()}</span><span class="player-name-wrap"><strong>${player.name}</strong><span>${player.squad}</span></span></div><span class="player-metric"><strong>${player.wins}</strong><span>WINS</span></span><span class="player-metric"><strong>${player.kills}</strong><span>KILLS</span></span><span class="player-metric"><strong>${player.points.toLocaleString('en-IN')}</strong><span>POINTS</span></span></div>`).join('');
 }
 
 function renderFeaturedSpotlight() {
   const tournament = window.ArenaTournaments.getTournaments().find((entry) => entry.featured);
-  if (!tournament) return;
+  if (!tournament) {
+    document.querySelector('#hero-tournament-name').textContent = window.ArenaTournaments.getError() ? 'Tournament backend unavailable' : 'No featured tournament';
+    document.querySelector('#hero-tournament-prize').textContent = '—';
+    document.querySelector('#hero-tournament-start').textContent = '—';
+    document.querySelector('#hero-tournament-link').href = 'tournaments.html';
+    return;
+  }
   document.querySelector('#hero-tournament-name').textContent = tournament.name;
   document.querySelector('#hero-tournament-prize').textContent = `₹${tournament.prizePool.toLocaleString('en-IN')}`;
   document.querySelector('#hero-tournament-start').textContent = new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short' }).format(new Date(`${tournament.startDate}T12:00:00`));
@@ -126,11 +123,31 @@ document.addEventListener('click', (event) => {
 
 });
 
-renderFeaturedSpotlight();
-renderTournaments();
-renderMatches();
-renderPlayers();
 window.ArenaHomeRefresh = () => renderTournaments(activeHomeGame);
+
+Promise.all([window.ArenaTournaments.ready, window.ArenaMatches.ready]).then(() => {
+  matches = window.ArenaMatches.getMatches().slice(0, 4).map((match) => {
+    const status = String(match.status || 'upcoming').toLowerCase();
+    const date = new Date(`${String(match.date || '')}T12:00:00`);
+    const dateLabel = Number.isNaN(date.getTime())
+      ? 'DATE TBD'
+      : new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short' }).format(date);
+    return {
+      matchId: match.matchId,
+      event: match.title || 'Match details pending',
+      state: status === 'live' ? 'LIVE NOW' : status === 'upcoming' ? 'UP NEXT' : status.toUpperCase(),
+      live: status === 'live',
+      first: 'REGISTERED',
+      second: `${Number(match.participantCount) || 0} ENTRIES`,
+      score: dateLabel,
+      detail: `${match.game} / ${match.mode}`
+    };
+  });
+  renderFeaturedSpotlight();
+  renderTournaments();
+  renderMatches();
+  renderPlayers();
+});
 
 const authNotice = window.ArenaAuth?.consumeNotice();
 if (authNotice) showToast(authNotice.message, authNotice.type === 'error');

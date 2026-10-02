@@ -183,23 +183,21 @@
     return { success: true, user: result.user };
   }
 
-  function setTournamentStatus(tournamentId, status) {
+  async function setTournamentStatus(tournamentId, status) {
     if (!isAuthorized()) return { success: false, message: 'Admin access required.' };
     if (!['Upcoming', 'Live', 'Completed'].includes(status)) return { success: false, message: 'Choose a valid tournament status.' };
-    const tournament = tournaments.getTournamentById(tournamentId);
-    if (!tournament) return { success: false, message: 'Tournament not found.' };
-    const saved = tournaments.saveTournament({ ...tournament, status });
-    if (!saved) return { success: false, message: 'Tournament status could not be saved.' };
+    const result = await tournaments.updateTournament(tournamentId, { status });
+    if (!result.success) return result;
     logAction('tournament_status_changed', 'tournament', tournamentId, `Changed status to ${status}.`);
     return { success: true };
   }
 
-  function updateMatch(matchId, values) {
+  async function updateMatch(matchId, values) {
     if (!isAuthorized()) return { success: false, message: 'Admin access required.' };
-    const result = matches.updateMatch(matchId, {
+    const result = await matches.updateMatch(matchId, {
       status: values.status,
-      roomId: values.roomId,
-      roomPassword: values.roomPassword,
+      ...(values.roomId ? { roomId: values.roomId } : {}),
+      ...(values.roomPassword ? { roomPassword: values.roomPassword } : {}),
       roomVisible: Boolean(values.roomVisible)
     });
     if (!result.success) return result;

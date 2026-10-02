@@ -13,6 +13,7 @@
 	<link rel="stylesheet" href="css/style.css">
 	<script src="js/api.js" defer></script>
 	<script src="js/auth.js" defer></script>
+	<script src="js/competition-api.js" defer></script>
 	<script src="js/tournaments.js" defer></script>
 	<script src="js/teams.js" defer></script>
 	<script src="js/matches.js" defer></script>
@@ -54,11 +55,11 @@
 			</div>
 			<label class="match-search" for="match-search"><span aria-hidden="true">⌕</span><input id="match-search" type="search" placeholder="Search event or tournament" autocomplete="off"></label>
 		</section>
-		<div class="match-results-heading"><p>FIXTURES <span id="match-result-count">00 MATCHES</span></p><span class="demo-data-tag">LOCAL SAMPLE DATA</span></div>
+		<div class="match-results-heading"><p>FIXTURES <span id="match-result-count">LOADING</span></p><span class="demo-data-tag">BACKEND API</span></div>
 		<div class="match-record-grid" id="match-grid" aria-live="polite"></div>
 		<section class="tournament-empty-state" id="match-empty" hidden><span class="empty-mark">×</span><h2>No upcoming matches</h2><p>Check another match category or search term.</p></section>
 		<section class="match-organizer-panel" id="match-organizer" hidden>
-			<div class="team-section-heading"><div><p class="eyebrow"><span class="eyebrow-line"></span> DEMO ORGANIZER / LOCAL STORAGE</p><h2>Create a <span>match.</span></h2></div></div>
+			<div class="team-section-heading"><div><p class="eyebrow"><span class="eyebrow-line"></span> ADMIN / BACKEND</p><h2>Create a <span>match.</span></h2></div></div>
 			<form class="match-editor-form" id="match-create-form">
 				<label class="match-editor-wide">Tournament<select id="new-match-tournament" name="tournamentId" required><option value="">Select a tournament</option></select></label>
 				<label>Match number<input name="matchNumber" type="number" min="1" step="1" required></label><label>Match title<input name="title" type="text" maxlength="80" required></label>

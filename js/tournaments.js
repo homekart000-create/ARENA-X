@@ -1,5 +1,6 @@
 // Demo-only localStorage records are not authoritative; production events need server-side validation and a secure database.
 (() => {
+  if (globalThis.ArenaCompetitionBackend) return;
   const TOURNAMENTS_KEY = 'arenaX_tournaments';
   const PARTICIPANTS_KEY = 'arenaX_participants';
   const PENDING_TOURNAMENT_KEY = 'arenaX_pendingTournament';

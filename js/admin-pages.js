@@ -4,6 +4,7 @@
   if (!auth || !admin || document.body.dataset.page !== 'admin') return;
 
   auth.ready.then(async () => {
+    await Promise.all([globalThis.ArenaTournaments?.ready, globalThis.ArenaTeams?.ready, globalThis.ArenaMatches?.ready]);
     if (!await auth.requireAdmin()) return;
     initializeAdminPage();
   });
@@ -69,7 +70,7 @@
     const search = document.querySelector('#admin-team-search').value.trim().toLowerCase();
     const filtered = admin.getTeams().filter((entry) => [entry.teamName, entry.teamTag, entry.ownerName, ...entry.members.map((member) => member.username)].join(' ').toLowerCase().includes(search));
     const body = document.querySelector('#admin-teams-body');
-    body.innerHTML = filtered.map((entry) => `<tr><td><strong>${escapeHtml(entry.teamName)} [${escapeHtml(entry.teamTag)}]</strong><small>${escapeHtml(entry.status || 'active')}</small></td><td>${escapeHtml(entry.ownerName)}</td><td>${entry.memberCount} / 4${entry.members.length ? `<details class="admin-member-details"><summary>View members</summary><span>${entry.members.map((member) => escapeHtml(`${member.username} (${member.role})`)).join(', ')}</span></details>` : ''}</td><td>${Number(entry.stats?.tournamentsJoined) || 0} tournaments · ${Number(entry.stats?.wins) || 0} wins</td><td>${escapeHtml(dateLabel(entry.createdAt))}</td><td><a class="admin-table-link" href="team.html?id=${encodeURIComponent(entry.teamId)}">View team</a></td></tr>`).join('');
+    body.innerHTML = filtered.map((entry) => `<tr><td><strong>${escapeHtml(entry.teamName)} [${escapeHtml(entry.teamTag)}]</strong><small>${escapeHtml(entry.status || 'active')}</small></td><td>${escapeHtml(entry.ownerName)}</td><td>${entry.memberCount} members${entry.members.length ? `<details class="admin-member-details"><summary>View members</summary><span>${entry.members.map((member) => escapeHtml(`${member.username} (${member.role})`)).join(', ')}</span></details>` : ''}</td><td>${Number(entry.stats?.tournamentsJoined) || 0} tournaments · ${Number(entry.stats?.wins) || 0} wins</td><td>${escapeHtml(dateLabel(entry.createdAt))}</td><td><a class="admin-table-link" href="team.html?id=${encodeURIComponent(entry.teamId)}">View team</a></td></tr>`).join('');
     body.closest('table').hidden = filtered.length === 0;
     document.querySelector('#admin-teams-empty').hidden = filtered.length !== 0;
     document.querySelector('#admin-teams-count').textContent = `${filtered.length} TEAMS`;
@@ -152,12 +153,12 @@
     const button = event.target.closest('[data-admin-action="user-status"]');
     if (button) handleUserStatus(button);
   });
-  document.addEventListener('submit', (event) => {
+  document.addEventListener('submit', async (event) => {
     const tournamentForm = event.target.closest('[data-admin-tournament-form]');
     if (tournamentForm) {
       event.preventDefault();
       const status = new FormData(tournamentForm).get('status');
-      const result = admin.setTournamentStatus(tournamentForm.dataset.id, status);
+      const result = await admin.setTournamentStatus(tournamentForm.dataset.id, status);
       showNotice(result.success ? 'Tournament status updated.' : result.message, !result.success);
       renderAll();
       return;
@@ -166,7 +167,7 @@
     if (matchForm) {
       event.preventDefault();
       const formData = new FormData(matchForm);
-      const result = admin.updateMatch(matchForm.dataset.id, {
+      const result = await admin.updateMatch(matchForm.dataset.id, {
         status: formData.get('status'),
         roomId: formData.get('roomId'),
         roomPassword: formData.get('roomPassword'),

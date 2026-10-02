@@ -162,6 +162,7 @@ export interface MatchView {
   readonly instructions: string;
   readonly maxPlayers: number;
   readonly visibility: 'public' | 'private';
+  readonly roomVisible?: boolean;
   readonly participantCount: number;
   readonly result?: MatchResultView;
   readonly createdAt: string;

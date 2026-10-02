@@ -1,4 +1,5 @@
 (() => {
+  if (globalThis.ArenaCompetitionBackend) return;
   const MATCHES_KEY = 'arenaX_matches';
   const matchStatuses = new Set(['upcoming', 'live', 'completed', 'cancelled']);
   const resultStatuses = new Set(['pending', 'submitted', 'published']);

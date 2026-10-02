@@ -59,15 +59,15 @@
     const joinControl = joinedLabel
       ? `<span class="registration-status-badge ${registrationClass}">✓ ${registrationLabel}</span>`
       : joined
-        ? '<a class="button button-join" href="my-tournaments.html">View My Tournament</a>'
+        ? `<button class="button button-join" type="button" data-tournament-cancel="${escapeHtml(tournament.id)}">Cancel registration</button>`
         : `<button class="button button-join" type="button" data-tournament-join="${escapeHtml(tournament.id)}">${joinLabel}</button>`;
     return `<article class="tournament-card tournament-card-rich" style="animation-delay:${Math.min(index, 8) * 45}ms">
-      <a class="tournament-card-banner tournament-banner-${bannerName(tournament.banner)}" href="${detailsUrl(tournament.id)}" aria-label="View ${escapeHtml(tournament.name)} details"><span class="tournament-banner-kicker">${escapeHtml(tournament.game)} / DEMO EVENT</span><span class="card-status ${statusClass}">${escapeHtml(tournament.status.toUpperCase())}</span><span class="tournament-banner-index">AX / ${String(index + 1).padStart(2, '0')}</span></a>
+      <a class="tournament-card-banner tournament-banner-${bannerName(tournament.banner)}" href="${detailsUrl(tournament.id)}" aria-label="View ${escapeHtml(tournament.name)} details"><span class="tournament-banner-kicker">${escapeHtml(tournament.game)} / ARENA X EVENT</span><span class="card-status ${statusClass}">${escapeHtml(tournament.status.toUpperCase())}</span><span class="tournament-banner-index">AX / ${String(index + 1).padStart(2, '0')}</span></a>
       <div class="tournament-card-body"><div class="tournament-card-title"><h2>${escapeHtml(tournament.name)}</h2><span class="type-badge">${escapeHtml(tournament.type)}</span></div><p class="tournament-game-name">${escapeHtml(tournament.game)} <span>·</span> ${escapeHtml(tournament.mode)}</p>
       <div class="card-prizes"><div><small>PRIZE POOL</small><strong>${money(tournament.prizePool)}</strong></div><div><small>ENTRY FEE</small><strong class="entry-value">${tournament.entryFee ? money(tournament.entryFee) : 'FREE'}</strong></div></div>
       <div class="tournament-card-meta"><span>${dateLabel(tournament.startDate)}</span><span>${escapeHtml(tournament.startTime)}</span><span>${tournament.joinedSlots} / ${tournament.maxSlots} slots</span><span>Available: ${store.getAvailableSlots(tournament)}</span></div>
       <div class="slots-track" role="progressbar" aria-label="Tournament slots" aria-valuemin="0" aria-valuemax="${tournament.maxSlots}" aria-valuenow="${tournament.joinedSlots}"><span style="width:${percent}%"></span></div>
-      ${joinedLabel ? `<div class="registration-summary"><span class="team-status">TEAM: ${registration?.teamId ? 'ASSIGNED' : 'NOT ASSIGNED'}</span><span>Cancellation unavailable</span></div>` : ''}
+      ${joinedLabel ? `<div class="registration-summary"><span class="team-status">TEAM: ${registration?.teamId ? 'ASSIGNED' : 'NOT ASSIGNED'}</span><span>Backend registration</span></div>` : ''}
       <div class="card-actions"><a class="button button-card" href="${detailsUrl(tournament.id)}">View tournament</a>${joinControl}</div></div>
     </article>`;
   }
@@ -82,7 +82,7 @@
       <div class="join-dialog-content"><p class="eyebrow"><span class="eyebrow-line"></span> ARENA X / CONFIRM ENTRY</p><h2 id="join-confirm-title">Join Tournament</h2>
       <div class="join-dialog-facts"><div><span>TOURNAMENT</span><strong data-confirm-name></strong></div><div><span>GAME / TYPE</span><strong data-confirm-game></strong></div><div><span>DATE / TIME</span><strong data-confirm-start></strong></div><div><span>ENTRY FEE</span><strong data-confirm-fee></strong></div><div><span>PRIZE POOL</span><strong data-confirm-prize></strong></div><div><span>AVAILABLE SLOTS</span><strong data-confirm-slots></strong></div></div>
       <p class="demo-payment-note" data-confirm-payment hidden>DEMO MODE — No real payment will be processed.</p>
-      <p class="join-dialog-copy">Confirm to save your registration to this browser. You cannot cancel a registration in this demo.</p>
+      <p class="join-dialog-copy">Confirm to submit your registration to ARENA X.</p>
       <div class="join-dialog-actions"><button class="button button-outline" type="button" data-join-cancel>Cancel</button><button class="button button-primary" type="button" data-join-confirm><span data-confirm-label>Confirm Registration</span><span aria-hidden="true">↗</span></button></div></div>`;
     document.body.append(joinDialog);
     joinDialog.addEventListener('click', (event) => {
@@ -110,31 +110,34 @@
     dialog.showModal();
   }
 
-  function refreshTournamentViews() {
+  async function refreshTournamentViews() {
+    if (document.body.dataset.page === 'home' || document.body.dataset.page === 'tournaments') await store.loadTournaments();
     if (document.body.dataset.page === 'home') globalThis.ArenaHomeRefresh?.();
     if (document.body.dataset.page === 'tournaments') renderTournamentList();
-    if (document.body.dataset.page === 'tournament-detail') renderTournamentDetail();
+    if (document.body.dataset.page === 'tournament-detail') await renderTournamentDetail();
     if (document.body.dataset.page === 'my-tournaments') renderMyTournaments();
   }
 
-  function confirmRegistration() {
+  async function confirmRegistration() {
     if (!pendingJoinId) return;
     const confirmButton = joinDialog.querySelector('[data-join-confirm]');
     confirmButton.disabled = true;
     confirmButton.classList.add('is-loading');
     joinDialog.querySelector('[data-confirm-label]').textContent = 'Registering...';
-    const result = store.joinTournament(pendingJoinId);
+    const tournament = store.getTournamentById(pendingJoinId);
+    const team = tournament?.type === 'Solo' ? null : globalThis.ArenaTeams?.getUserTeam();
+    const result = await store.joinTournament(pendingJoinId, { ...(team ? { teamId: team.teamId } : {}) });
     if (!result.success) {
       joinDialog.close();
       pendingJoinId = null;
       showToast(result.message, true);
-      refreshTournamentViews();
+      await refreshTournamentViews();
       return;
     }
     joinDialog.close();
     pendingJoinId = null;
-    refreshTournamentViews();
-    showToast(`Registration successful! You have successfully joined ${result.tournament.name}.`);
+    await refreshTournamentViews();
+    showToast(`Registration successful! You have joined ${result.tournament?.name || 'this tournament'}.`);
   }
 
   function renderTournamentList() {
@@ -149,6 +152,16 @@
     const type = document.querySelector('#filter-type')?.value || 'All';
     const entry = document.querySelector('#filter-entry')?.value || 'All';
     const sort = document.querySelector('#sort-tournaments')?.value || 'starting-soon';
+    const loadError = store.getError();
+    if (loadError) {
+      grid.hidden = true;
+      loading.hidden = true;
+      empty.hidden = false;
+      empty.querySelector('h2').textContent = 'Tournament backend unavailable';
+      empty.querySelector('p').textContent = loadError.message;
+      if (count) count.textContent = 'BACKEND UNAVAILABLE';
+      return;
+    }
     const filtered = store.getTournaments().filter((tournament) => {
       const searchText = [tournament.name, tournament.game, tournament.host, tournament.type, tournament.description].join(' ').toLowerCase();
       return (!search || searchText.includes(search))
@@ -175,17 +188,25 @@
     if (count) count.textContent = `${String(filtered.length).padStart(2, '0')} TOURNAMENT${filtered.length === 1 ? '' : 'S'}`;
   }
 
-  function renderTournamentDetail() {
+  async function renderTournamentDetail() {
     const content = document.querySelector('#tournament-detail-content');
     if (!content) return;
     const loading = document.querySelector('#tournament-loading');
     const notFound = document.querySelector('#tournament-not-found');
     const id = new URLSearchParams(location.search).get('id');
-    const tournament = id ? store.getTournamentById(id) : null;
+    let tournament = null;
+    let loadError = null;
+    if (id) {
+      try { tournament = await store.loadTournament(id); } catch (error) { loadError = error; }
+    }
     loading.hidden = true;
     if (!tournament) {
       content.hidden = true;
       notFound.hidden = false;
+      if (loadError && loadError.code !== 'NOT_FOUND') {
+        notFound.querySelector('h1').textContent = 'Competition backend unavailable.';
+        notFound.querySelector('p:last-of-type').textContent = loadError.message;
+      }
       document.title = 'Tournament not found | ARENA X';
       return;
     }
@@ -197,7 +218,7 @@
     const availableSlots = store.getAvailableSlots(tournament);
     const deadlinePassed = Number.isNaN(new Date(tournament.registrationDeadline).getTime()) || Date.now() > new Date(tournament.registrationDeadline).getTime();
     const joinControl = joined
-      ? '<span class="registration-status-badge registration-registered">✓ Registered</span><a class="button button-outline" href="my-tournaments.html">View My Tournament</a>'
+      ? `<span class="registration-status-badge registration-registered">✓ Registered</span><button class="button button-outline" type="button" data-tournament-cancel="${escapeHtml(tournament.id)}">Cancel registration</button>`
       : tournament.status === 'Completed'
         ? '<button class="button button-outline" type="button" disabled>Tournament Completed</button>'
         : deadlinePassed
@@ -210,11 +231,11 @@
     const relatedMatches = globalThis.ArenaMatches?.getMatchesByTournament(tournament.id) || [];
     const matchRows = relatedMatches.map((match) => `<a class="tournament-match-row" href="match.html?id=${encodeURIComponent(match.matchId)}"><span><strong>${escapeHtml(match.title)}</strong><small>Match ${String(match.matchNumber).padStart(2, '0')} · ${dateLabel(match.date)} · ${escapeHtml(match.startTime)}</small></span><span class="match-status status-${escapeHtml(match.status)}">${escapeHtml(match.status.toUpperCase())}</span></a>`).join('');
     content.innerHTML = `<a class="detail-back-link" href="tournaments.html"><span aria-hidden="true">←</span> All tournaments</a>
-      <section class="detail-hero"><div class="detail-hero-banner tournament-banner-${bannerName(tournament.banner)}"><span class="tournament-banner-kicker">${escapeHtml(tournament.game)} / ARENA X DEMO</span><span class="detail-hero-mark">AX</span><span class="card-status ${statusClass}">${escapeHtml(tournament.status.toUpperCase())}</span></div>
-      <div class="detail-hero-copy"><div class="detail-hero-title"><div><p class="eyebrow"><span class="eyebrow-line"></span> ${escapeHtml(tournament.type.toUpperCase())} / ${escapeHtml(tournament.game.toUpperCase())}</p><h1>${escapeHtml(tournament.name)}</h1></div><span class="type-badge">${escapeHtml(tournament.type)}</span></div><p>${escapeHtml(tournament.description)}</p><div class="detail-hero-actions">${joinControl}<span class="demo-data-tag">SAMPLE TOURNAMENT DATA</span></div></div></section>
+      <section class="detail-hero"><div class="detail-hero-banner tournament-banner-${bannerName(tournament.banner)}"><span class="tournament-banner-kicker">${escapeHtml(tournament.game)} / ARENA X EVENT</span><span class="detail-hero-mark">AX</span><span class="card-status ${statusClass}">${escapeHtml(tournament.status.toUpperCase())}</span></div>
+      <div class="detail-hero-copy"><div class="detail-hero-title"><div><p class="eyebrow"><span class="eyebrow-line"></span> ${escapeHtml(tournament.type.toUpperCase())} / ${escapeHtml(tournament.game.toUpperCase())}</p><h1>${escapeHtml(tournament.name)}</h1></div><span class="type-badge">${escapeHtml(tournament.type)}</span></div><p>${escapeHtml(tournament.description)}</p><div class="detail-hero-actions">${joinControl}</div></div></section>
       <section class="detail-overview" aria-label="Tournament overview"><div><span>ENTRY FEE</span><strong>${tournament.entryFee ? money(tournament.entryFee) : 'FREE'}</strong></div><div><span>PRIZE POOL</span><strong>${money(tournament.prizePool)}</strong></div><div><span>JOINED / MAX</span><strong>${tournament.joinedSlots} / ${tournament.maxSlots}</strong></div><div><span>AVAILABLE SLOTS</span><strong>${availableSlots}</strong></div></section>
       <div class="detail-content-grid"><div class="detail-content-primary"><section class="detail-section tournament-matches-section"><p class="eyebrow"><span class="eyebrow-line"></span> MATCH SCHEDULE</p><h2>Related <span>matches.</span></h2><div class="match-detail-links"><a class="match-tournament-link" href="matches.html?tournamentId=${encodeURIComponent(tournament.id)}">Tournament matches ↗</a><a class="match-tournament-link" href="leaderboard.html?tournamentId=${encodeURIComponent(tournament.id)}">Tournament leaderboard ↗</a></div>${matchRows ? `<div class="tournament-match-list">${matchRows}</div>` : '<p>No matches have been scheduled for this tournament yet.</p>'}</section><section class="detail-section"><p class="eyebrow"><span class="eyebrow-line"></span> ABOUT</p><h2>Enter the <span>arena.</span></h2><p>${escapeHtml(tournament.description)}</p></section>
-      <section class="detail-section"><p class="eyebrow"><span class="eyebrow-line"></span> RULES / DEMO</p><h2>Play it <span>clean.</span></h2><ul class="tournament-rules">${rules}</ul><p class="rules-disclaimer">These are sample rules for this demo event and do not represent a live competition contract.</p></section>
+      <section class="detail-section"><p class="eyebrow"><span class="eyebrow-line"></span> RULES</p><h2>Play it <span>clean.</span></h2><ul class="tournament-rules">${rules}</ul></section>
       <section class="detail-section"><p class="eyebrow"><span class="eyebrow-line"></span> PRIZE DISTRIBUTION</p><h2>Play for the <span>podium.</span></h2><div class="prize-distribution">${prizeRows}</div></section></div>
       <aside class="detail-sidebar"><section class="detail-section"><p class="eyebrow"><span class="eyebrow-line"></span> MATCH FORMAT</p><h2>Format</h2><div class="detail-sidebar-row"><span>Game</span><strong>${escapeHtml(tournament.game)}</strong></div><div class="detail-sidebar-row"><span>Team type</span><strong>${escapeHtml(tournament.type)}</strong></div><div class="detail-sidebar-row"><span>Map</span><strong>${escapeHtml(tournament.map)}</strong></div><div class="detail-sidebar-row"><span>Mode</span><strong>${escapeHtml(tournament.mode)}</strong></div></section>
       <section class="detail-section"><p class="eyebrow"><span class="eyebrow-line"></span> TOURNAMENT INFORMATION</p><h2>Event <span>brief.</span></h2><div class="detail-sidebar-row"><span>Start date</span><strong>${dateLabel(tournament.startDate)}</strong></div><div class="detail-sidebar-row"><span>Start time</span><strong>${escapeHtml(tournament.startTime)}</strong></div><div class="detail-sidebar-row"><span>Registration closes</span><strong>${deadlineLabel(tournament.registrationDeadline)}</strong></div><div class="detail-sidebar-row"><span>Host</span><strong>${escapeHtml(tournament.host)}</strong></div></section></aside></div>`;
@@ -227,6 +248,16 @@
     const loading = document.querySelector('#my-tournament-loading');
     const empty = document.querySelector('#my-tournament-empty');
     const filterEmpty = document.querySelector('#my-filter-empty');
+    if (!store.getMyTournamentsAvailable()) {
+      loading.hidden = true;
+      content.hidden = true;
+      filterEmpty.hidden = true;
+      empty.hidden = false;
+      empty.querySelector('h2').textContent = 'Registration list unavailable';
+      empty.querySelector('p').textContent = 'The current backend API can register and cancel entries, but cannot list your registrations yet.';
+      empty.querySelector('a').hidden = true;
+      return;
+    }
     const joined = store.getMyTournaments();
     const visibleEntries = activeMyCategory === 'All' ? joined : joined.filter((tournament) => tournament.status === activeMyCategory);
     loading.hidden = true;
@@ -279,9 +310,19 @@
     openJoinDialog(tournament);
   }
 
+  async function handleCancel(tournamentId, button) {
+    button.disabled = true;
+    const result = await store.cancelRegistration(tournamentId);
+    if (!result.success) showToast(result.message || 'Registration could not be cancelled.', true);
+    else showToast('Registration cancelled.');
+    await refreshTournamentViews();
+  }
+
   document.addEventListener('click', (event) => {
     const joinButton = event.target.closest('[data-tournament-join]');
     if (joinButton) handleJoin(joinButton.dataset.tournamentJoin);
+    const cancelButton = event.target.closest('[data-tournament-cancel]');
+    if (cancelButton) handleCancel(cancelButton.dataset.tournamentCancel, cancelButton);
     const tab = event.target.closest('[data-my-tab]');
     if (tab) {
       activeMyCategory = tab.dataset.myTab;
@@ -292,13 +333,9 @@
   document.querySelector('#tournament-filters')?.addEventListener('change', renderTournamentList);
   document.querySelector('#tournament-filters')?.addEventListener('reset', () => window.setTimeout(renderTournamentList, 0));
 
-  const protectedRedirecting = document.body.dataset.page === 'my-tournaments' && !auth.isLoggedIn();
-  const notice = protectedRedirecting ? null : auth.consumeNotice();
-  if (notice) showToast(notice.message, notice.type === 'error');
-  if (document.body.dataset.page === 'tournaments') renderTournamentList();
-  if (document.body.dataset.page === 'tournament-detail') renderTournamentDetail();
-  if (document.body.dataset.page === 'my-tournaments' && auth.isLoggedIn()) renderMyTournaments();
-  auth.ready.then(() => {
+  Promise.all([store.ready, globalThis.ArenaTeams?.ready, globalThis.ArenaMatches?.ready, auth.ready]).then(async () => {
+    if (document.body.dataset.page === 'tournaments') renderTournamentList();
+    if (document.body.dataset.page === 'tournament-detail') await renderTournamentDetail();
     if (document.body.dataset.page === 'my-tournaments' && !auth.isLoggedIn()) return;
     if (document.body.dataset.page === 'my-tournaments') renderMyTournaments();
     const sessionNotice = auth.consumeNotice();

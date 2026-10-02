@@ -1,5 +1,6 @@
 // Team records are a local demo only. Production team and invitation changes require server authorization and durable storage.
 (() => {
+  if (globalThis.ArenaCompetitionBackend) return;
   const TEAMS_KEY = 'arenaX_teams';
   const INVITATIONS_KEY = 'arenaX_teamInvitations';
   const MAX_TEAM_SIZE = 4;

@@ -278,21 +278,25 @@ class MemoryCompetitionRepository implements CompetitionRepository {
     return updated;
   }
 
-  private publicMatch(match: MemoryMatch): MatchView {
+  private publicMatch(match: MemoryMatch, includeRoomVisibility = false): MatchView {
     const { roomIdCipher: _roomId, roomPasswordCipher: _password, roomVisible: _visible, submittedResult: _submitted, ...publicFields } = match;
     void _roomId; void _password; void _visible; void _submitted;
+    const projection = {
+      ...publicFields,
+      ...(includeRoomVisibility ? { roomVisible: match.roomVisible } : {})
+    };
     return match.resultStatus === 'published' && match.submittedResult
-      ? { ...publicFields, result: match.submittedResult }
-      : publicFields;
+      ? { ...projection, result: match.submittedResult }
+      : projection;
   }
 
   async listMatches(includePrivate: boolean): Promise<readonly MatchView[]> {
-    return [...this.matches.values()].filter((match) => includePrivate || match.visibility === 'public').map((match) => this.publicMatch(match));
+    return [...this.matches.values()].filter((match) => includePrivate || match.visibility === 'public').map((match) => this.publicMatch(match, includePrivate));
   }
 
   async getMatch(id: string, includePrivate: boolean): Promise<MatchView | null> {
     const match = this.matches.get(id);
-    return match && (includePrivate || match.visibility === 'public') ? this.publicMatch(match) : null;
+    return match && (includePrivate || match.visibility === 'public') ? this.publicMatch(match, includePrivate) : null;
   }
 
   async createMatch(ownerId: string, input: MatchInput, roomId: Buffer | null, roomPassword: Buffer | null): Promise<MatchView> {
@@ -311,7 +315,7 @@ class MemoryCompetitionRepository implements CompetitionRepository {
     };
     this.matches.set(match.matchId, match);
     void ownerId;
-    return this.publicMatch(match);
+    return this.publicMatch(match, true);
   }
 
   async updateMatch(id: string, input: MatchPatch, credentials: EncryptedRoomPatch): Promise<MatchView | null> {
@@ -329,7 +333,7 @@ class MemoryCompetitionRepository implements CompetitionRepository {
       updatedAt: new Date().toISOString()
     };
     this.matches.set(id, updated);
-    return this.publicMatch(updated);
+    return this.publicMatch(updated, true);
   }
 
   async setMatchResult(id: string, _submittedByUserId: string, input: MatchResultInput): Promise<MatchView | null> {
@@ -342,7 +346,7 @@ class MemoryCompetitionRepository implements CompetitionRepository {
     const result = { winnerName, placement: input.placement, points: input.points, kills: input.kills, remarks: input.remarks ?? '' };
     const updated: MemoryMatch = { ...match, resultStatus: input.status, ...(input.status === 'published' ? { submittedResult: result } : {}), updatedAt: new Date().toISOString() };
     this.matches.set(id, updated);
-    return this.publicMatch(updated);
+    return this.publicMatch(updated, true);
   }
 
   async getRoomCredentials(id: string, userId: string, isAdmin: boolean, decrypt: (roomId: Buffer, password: Buffer) => RoomCredentials): Promise<RoomCredentials | null> {
@@ -640,11 +644,18 @@ test('public match listing and details omit room credentials', async (context) =
   const match = response.json().match as MatchView;
   const list = await harness.app.inject({ method: 'GET', url: '/api/matches' });
   const detail = await harness.app.inject({ method: 'GET', url: `/api/matches/${match.matchId}` });
+  const adminList = await harness.app.inject({ method: 'GET', url: '/api/matches', headers: { cookie: harness.adminCookie } });
+  const adminDetail = await harness.app.inject({ method: 'GET', url: `/api/matches/${match.matchId}`, headers: { cookie: harness.adminCookie } });
   for (const result of [list.body, detail.body]) {
     assert.equal(result.includes('PRIVATE-ID'), false);
     assert.equal(result.includes('PRIVATE-PASSWORD'), false);
     assert.equal(result.includes('roomPassword'), false);
   }
+  assert.equal(list.json().matches[0].roomVisible, undefined);
+  assert.equal(detail.json().match.roomVisible, undefined);
+  assert.equal(adminList.json().matches[0].roomVisible, true);
+  assert.equal(adminDetail.json().match.roomVisible, true);
+  assert.equal(response.json().match.roomVisible, true);
   assert.equal(list.statusCode, 200);
   assert.equal(detail.statusCode, 200);
 });
