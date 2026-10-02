@@ -85,7 +85,7 @@ class MemoryWalletRepository implements WalletRepository {
     return this.exclusive(command.userId, async () => this.execute(command, false));
   }
 
-  async requestWithdrawal(command: WalletCommand): Promise<WithdrawalRequestView> {
+  async requestWithdrawal(command: WalletCommand, _requireVerifiedKyc?: boolean): Promise<WithdrawalRequestView> {
     return this.exclusive(command.userId, async () => {
       const result = await this.execute(command, true);
       let requestId = this.withdrawalIds.get(result.transaction.transactionId);

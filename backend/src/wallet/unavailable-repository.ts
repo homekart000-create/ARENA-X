@@ -10,5 +10,5 @@ export class UnavailableWalletRepository implements WalletRepository {
   async getWallet(_userId: string) { return unavailable(); }
   async listTransactions(_userId: string, _filter: Parameters<WalletRepository['listTransactions']>[1]) { return unavailable(); }
   async postTransaction(_command: WalletCommand) { return unavailable(); }
-  async requestWithdrawal(_command: WalletCommand) { return unavailable(); }
+  async requestWithdrawal(_command: WalletCommand, _requireVerifiedKyc?: boolean) { return unavailable(); }
 }

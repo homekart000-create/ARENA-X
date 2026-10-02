@@ -111,7 +111,7 @@ export class WalletService {
         throw new WalletError(403, 'KYC_REQUIRED', 'Withdrawal is unavailable until KYC has been verified.');
       }
     }
-    return this.repository.requestWithdrawal(command);
+    return this.repository.requestWithdrawal(command, this.requireVerifiedKyc);
   }
 
   private async post(userId: string, type: WalletTransactionType, direction: WalletDirection, input: WalletOperationInput, actorUserId?: string): Promise<WalletCommandResult> {

@@ -334,8 +334,17 @@ export class PostgresWalletRepository implements TransactionalWalletRepository {
     };
   }
 
-  async requestWithdrawal(command: WalletCommand): Promise<WithdrawalRequestView> {
+  async requestWithdrawal(command: WalletCommand, requireVerifiedKyc = false): Promise<WithdrawalRequestView> {
     return this.transaction(async (client) => {
+      if (requireVerifiedKyc) {
+        const kyc = await client.query<{ status: string }>(
+          'SELECT status FROM kyc_profiles WHERE user_id=$1 FOR SHARE',
+          [command.userId]
+        );
+        if (kyc.rows[0]?.status !== 'verified') {
+          throw new WalletError(403, 'KYC_REQUIRED', 'Withdrawal is unavailable until KYC has been verified.');
+        }
+      }
       const wallet = await this.lockWallet(client, command.userId);
       const hash = walletRequestHash(command);
       const existing = await this.findIdempotent(client, command, hash);

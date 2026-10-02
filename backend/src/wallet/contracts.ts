@@ -70,7 +70,7 @@ export interface WalletRepository {
   getWallet(userId: string): Promise<WalletView>;
   listTransactions(userId: string, filter: WalletTransactionFilter): Promise<readonly WalletTransactionView[]>;
   postTransaction(command: WalletCommand): Promise<WalletCommandResult>;
-  requestWithdrawal(command: WalletCommand): Promise<WithdrawalRequestView>;
+  requestWithdrawal(command: WalletCommand, requireVerifiedKyc?: boolean): Promise<WithdrawalRequestView>;
 }
 
 export interface TransactionalWalletRepository extends WalletRepository {
