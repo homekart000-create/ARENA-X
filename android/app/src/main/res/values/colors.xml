@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="colorPrimary">#d2fa47</color>
+    <color name="colorPrimaryDark">#10120f</color>
+    <color name="colorAccent">#d2fa47</color>
+    <color name="arenax_splash_background">#10120f</color>
+</resources>

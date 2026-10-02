@@ -1,0 +1,31 @@
+{
+  "name": "arena-x-android",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Capacitor Android packaging for the ARENA X static web application",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "android:web": "node scripts/build-android-web.mjs",
+    "android:prepare": "npm run android:web",
+    "android:sync": "npm run android:prepare && cap sync android",
+    "android:debug": "npm run android:sync && android\\gradlew.bat -p android assembleDebug",
+    "android:release:apk": "node scripts/build-android-web.mjs --release && cap sync android && android\\gradlew.bat -p android assembleRelease",
+    "android:release:aab": "node scripts/build-android-web.mjs --release && cap sync android && android\\gradlew.bat -p android bundleRelease",
+    "test:android:packaging": "node --test tests/android-packaging.test.cjs"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.4.3",
+    "esbuild": "^0.28.2"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.5.2",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/browser": "^8.0.5",
+    "@capacitor/core": "^8.5.2",
+    "@capacitor/keyboard": "^8.0.6",
+    "@capacitor/splash-screen": "^8.0.2",
+    "@capacitor/status-bar": "^8.0.4"
+  }
+}

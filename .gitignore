@@ -3,3 +3,10 @@ backend/dist/
 backend/.env
 backend/.env.*
 !backend/.env.example
+android-web/
+android/local.properties
+android/.gradle/
+android/**/build/
+android/app/release/
+*.jks
+*.keystore
