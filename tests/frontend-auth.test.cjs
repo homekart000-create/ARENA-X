@@ -68,7 +68,7 @@ function publicUser(overrides = {}) {
   };
 }
 
-test('API helper uses project-relative paths, JSON, and credentialed cookies', async () => {
+test('API helper uses the production backend, JSON, and credentialed cookies', async () => {
   let captured;
   const sandbox = {
     document: { baseURI: 'https://example.test/ARENA-X/login.html' },
@@ -86,7 +86,8 @@ test('API helper uses project-relative paths, JSON, and credentialed cookies', a
     body: { identifier: 'arena_player', password: 'secret-value' }
   });
 
-  assert.equal(captured.url, 'https://example.test/ARENA-X/api/auth/login');
+  assert.equal(captured.url, 'https://arena-x-wzss.onrender.com/api/auth/login');
+  assert.equal(sandbox.ArenaApi.baseUrl, 'https://arena-x-wzss.onrender.com');
   assert.equal(captured.options.credentials, 'include');
   assert.equal(captured.options.headers.get('Content-Type'), 'application/json');
   assert.deepEqual(JSON.parse(captured.options.body), { identifier: 'arena_player', password: 'secret-value' });
