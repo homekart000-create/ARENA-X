@@ -9,6 +9,7 @@ import {
   type MatchPatch,
   type MatchResultInput,
   type MatchView,
+  type RegisteredParticipantView,
   type RegistrationView,
   type RoomCredentials,
   type TeamInput,
@@ -18,7 +19,8 @@ import {
   type TournamentInput,
   type TournamentPatch,
   type TournamentType,
-  type TournamentView
+  type TournamentView,
+  type UserNotificationView
 } from './contracts.js';
 import { WalletError } from '../wallet/contracts.js';
 import { MAX_WALLET_AMOUNT_MINOR, WalletService } from '../wallet/service.js';
@@ -83,11 +85,15 @@ interface MatchRow {
   created_at: Date | string;
   updated_at: Date | string;
   participant_count: string | number;
-  winner_name_snapshot?: string;
-  placement?: number;
-  points?: number;
-  kills?: number;
-  remarks?: string;
+  results_json?: MatchView['results'] | string | null;
+}
+
+interface ParticipantRow {
+  registration_id: string;
+  team_id: string | null;
+  team_name: string | null;
+  user_id: string;
+  username: string;
 }
 
 function timestamp(value: Date | string): string {
@@ -157,7 +163,7 @@ function mapTeam(row: TeamRow, members: readonly TeamMemberRow[]): TeamView {
   };
 }
 
-function mapMatch(row: MatchRow, result?: MatchView['result'], includeRoomVisibility = false): MatchView {
+function mapMatch(row: MatchRow, results?: MatchView['results'], includeRoomVisibility = false): MatchView {
   return {
     matchId: row.id,
     tournamentId: row.tournament_id,
@@ -173,7 +179,7 @@ function mapMatch(row: MatchRow, result?: MatchView['result'], includeRoomVisibi
     visibility: row.visibility,
     ...(includeRoomVisibility ? { roomVisible: row.room_visible ?? false } : {}),
     participantCount: Number(row.participant_count),
-    ...(result ? { result } : {}),
+    ...(results?.length ? { result: results[0], results } : {}),
     createdAt: timestamp(row.created_at),
     updatedAt: timestamp(row.updated_at)
   };
@@ -670,34 +676,39 @@ export class PostgresCompetitionRepository implements CompetitionRepository {
     });
   }
 
-  private async loadMatch(db: Queryable, id: string, includePrivate: boolean): Promise<MatchView | null> {
+  private async loadMatch(db: Queryable, id: string, includePrivate: boolean, userId?: string): Promise<MatchView | null> {
     const result = await db.query<MatchRow>(
       `SELECT m.id::text AS id, m.tournament_id::text AS tournament_id, m.match_number, m.title,
         m.game, m.mode, m.starts_at, m.status, m.max_participants, m.visibility, m.map, m.instructions,
         m.created_at, m.updated_at, rc.room_visible,
         (SELECT count(*) FROM match_participants mp WHERE mp.match_id=m.id AND mp.status='eligible') AS participant_count,
-        entry.winner_name_snapshot, entry.placement, entry.points, entry.kills, entry.remarks
+        entry.results_json
        FROM matches m
        LEFT JOIN match_room_credentials rc ON rc.match_id=m.id
        LEFT JOIN LATERAL (
-         SELECT e.winner_name_snapshot, e.placement, e.points, e.kills, e.remarks
+         SELECT json_agg(json_build_object(
+           'playerId', e.player_id::text, 'teamId', e.team_id::text,
+           'winnerName', e.winner_name_snapshot, 'placement', e.placement,
+           'points', e.points, 'kills', e.kills, 'remarks', e.remarks
+         ) ORDER BY e.placement, e.winner_name_snapshot) AS results_json
          FROM match_result_submissions s JOIN match_result_entries e ON e.submission_id=s.id
          WHERE s.match_id=m.id AND s.status='published'
+         GROUP BY s.id, s.published_at
          ORDER BY s.published_at DESC NULLS LAST LIMIT 1
        ) entry ON true
-       WHERE m.id=$1 AND ($2::boolean OR m.visibility='public')`,
-      [id, includePrivate]
+       WHERE m.id=$1 AND ($2::boolean OR m.visibility='public' OR EXISTS (
+         SELECT 1 FROM match_participants mp
+         JOIN tournament_registrations r ON r.id=mp.registration_id AND r.tournament_id=mp.tournament_id
+         JOIN registration_members rm ON rm.registration_id=r.id
+         WHERE mp.match_id=m.id AND mp.status='eligible' AND r.status='registered'
+           AND rm.user_id=$3 AND rm.left_at IS NULL
+       ))`,
+      [id, includePrivate, userId ?? null]
     );
     const row = result.rows[0];
     if (!row) return null;
-    const publicResult = row.winner_name_snapshot === undefined ? undefined : {
-      winnerName: row.winner_name_snapshot,
-      placement: Number(row.placement ?? 0),
-      points: Number(row.points ?? 0),
-      kills: Number(row.kills ?? 0),
-      remarks: row.remarks ?? ''
-    };
-    return mapMatch(row, publicResult, includePrivate);
+    const rawResults = typeof row.results_json === 'string' ? JSON.parse(row.results_json) as MatchView['results'] : row.results_json;
+    return mapMatch(row, rawResults ?? undefined, includePrivate);
   }
 
   async listMatches(includePrivate: boolean): Promise<readonly MatchView[]> {
@@ -713,9 +724,151 @@ export class PostgresCompetitionRepository implements CompetitionRepository {
     }
   }
 
-  async getMatch(id: string, includePrivate: boolean): Promise<MatchView | null> {
+  async getMatch(id: string, includePrivate: boolean, userId?: string): Promise<MatchView | null> {
     try {
-      return await this.loadMatch(this.pool, id, includePrivate);
+      return await this.loadMatch(this.pool, id, includePrivate, userId);
+    } catch (error) {
+      throw safeDatabaseError(error);
+    }
+  }
+
+  async listMyMatches(userId: string): Promise<readonly MatchView[]> {
+    try {
+      const ids = await this.pool.query<{ id: string }>(
+        `SELECT DISTINCT m.id::text AS id
+         FROM matches m
+         JOIN match_participants mp ON mp.match_id=m.id AND mp.status='eligible'
+         JOIN tournament_registrations r ON r.id=mp.registration_id AND r.tournament_id=mp.tournament_id AND r.status='registered'
+         JOIN registration_members rm ON rm.registration_id=r.id AND rm.user_id=$1 AND rm.left_at IS NULL
+         ORDER BY m.starts_at, m.match_number`,
+        [userId]
+      );
+      return (await Promise.all(ids.rows.map((row) => this.loadMatch(this.pool, row.id, true, userId))))
+        .filter((match): match is MatchView => match !== null);
+    } catch (error) {
+      throw safeDatabaseError(error);
+    }
+  }
+
+  private async loadParticipants(db: Queryable, id: string, matchOnly: boolean): Promise<RegisteredParticipantView[]> {
+    const result = await db.query<ParticipantRow>(
+      `SELECT r.id::text AS registration_id, r.team_id::text AS team_id, t.team_name,
+        u.id::text AS user_id, u.username
+       FROM tournament_registrations r
+       LEFT JOIN match_participants mp ON mp.registration_id=r.id AND mp.tournament_id=r.tournament_id AND mp.status='eligible'
+       JOIN registration_members rm ON rm.registration_id=r.id AND rm.left_at IS NULL
+       JOIN users u ON u.id=rm.user_id AND u.status='active'
+       LEFT JOIN teams t ON t.id=r.team_id
+       WHERE r.status='registered' AND (($2::boolean=false AND r.tournament_id=$1) OR ($2::boolean=true AND mp.match_id=$1))
+       ORDER BY r.registered_at, t.team_name, u.username`,
+      [id, matchOnly]
+    );
+    const registrations = new Map<string, { registrationId: string; teamId: string | null; teamName: string | null; players: { userId: string; username: string }[] }>();
+    for (const row of result.rows) {
+      const registration = registrations.get(row.registration_id) ?? {
+        registrationId: row.registration_id,
+        teamId: row.team_id,
+        teamName: row.team_name,
+        players: []
+      };
+      registration.players.push({ userId: row.user_id, username: row.username });
+      registrations.set(row.registration_id, registration);
+    }
+    return [...registrations.values()];
+  }
+
+  async listTournamentParticipants(tournamentId: string): Promise<readonly RegisteredParticipantView[] | null> {
+    try {
+      const tournament = await this.pool.query('SELECT 1 FROM tournaments WHERE id=$1', [tournamentId]);
+      if (!tournament.rowCount) return null;
+      return this.loadParticipants(this.pool, tournamentId, false);
+    } catch (error) {
+      throw safeDatabaseError(error);
+    }
+  }
+
+  async listMatchParticipants(matchId: string): Promise<readonly RegisteredParticipantView[] | null> {
+    try {
+      const match = await this.pool.query('SELECT 1 FROM matches WHERE id=$1', [matchId]);
+      if (!match.rowCount) return null;
+      return this.loadParticipants(this.pool, matchId, true);
+    } catch (error) {
+      throw safeDatabaseError(error);
+    }
+  }
+
+  async publishMatchNotifications(matchId: string): Promise<number | null> {
+    try {
+      return await this.transaction(async (client) => {
+        const match = await client.query(
+          `SELECT m.id FROM matches m
+           JOIN match_room_credentials rc ON rc.match_id=m.id
+           WHERE m.id=$1 AND m.status IN ('upcoming', 'live')
+             AND rc.encrypted_room_id IS NOT NULL AND rc.encrypted_password IS NOT NULL
+           FOR UPDATE OF m, rc`,
+          [matchId]
+        );
+        if (!match.rowCount) return null;
+        await client.query(
+          `UPDATE match_room_credentials SET room_visible=true, updated_at=now() WHERE match_id=$1`,
+          [matchId]
+        );
+        const inserted = await client.query(
+          `INSERT INTO user_notifications (user_id, notification_key, type, title, message, related_id)
+           SELECT DISTINCT rm.user_id, 'match-room:' || $1::text, 'match_room_available',
+             'Match room available', 'Room credentials are available for your registered match. Open the match to view them securely.', $1
+           FROM match_participants mp
+           JOIN tournament_registrations r ON r.id=mp.registration_id AND r.tournament_id=mp.tournament_id AND r.status='registered'
+           JOIN registration_members rm ON rm.registration_id=r.id AND rm.left_at IS NULL
+           JOIN users u ON u.id=rm.user_id AND u.status='active'
+           WHERE mp.match_id=$1 AND mp.status='eligible'
+           ON CONFLICT (user_id, notification_key) DO NOTHING`,
+          [matchId]
+        );
+        return inserted.rowCount ?? 0;
+      });
+    } catch (error) {
+      throw safeDatabaseError(error);
+    }
+  }
+
+  async listNotifications(userId: string): Promise<readonly UserNotificationView[]> {
+    try {
+      const result = await this.pool.query<{
+        id: string;
+        type: string;
+        title: string;
+        message: string;
+        related_id: string | null;
+        created_at: Date | string;
+        read_at: Date | string | null;
+      }>(
+        `SELECT id::text AS id, type, title, message, related_id::text AS related_id, created_at, read_at
+         FROM user_notifications WHERE user_id=$1 ORDER BY created_at DESC`,
+        [userId]
+      );
+      return result.rows.map((row) => ({
+        id: row.id,
+        type: row.type,
+        title: row.title,
+        message: row.message,
+        relatedId: row.related_id,
+        createdAt: timestamp(row.created_at),
+        read: row.read_at !== null
+      }));
+    } catch (error) {
+      throw safeDatabaseError(error);
+    }
+  }
+
+  async markNotificationRead(userId: string, notificationId: string): Promise<boolean> {
+    try {
+      const result = await this.pool.query(
+        `UPDATE user_notifications SET read_at=COALESCE(read_at, now())
+         WHERE id=$1 AND user_id=$2`,
+        [notificationId, userId]
+      );
+      return (result.rowCount ?? 0) > 0;
     } catch (error) {
       throw safeDatabaseError(error);
     }
@@ -795,7 +948,8 @@ export class PostgresCompetitionRepository implements CompetitionRepository {
       const prior = previous.rows[0];
       const nextRoomId = credentials.roomId === undefined ? prior?.encrypted_room_id ?? null : credentials.roomId;
       const nextPassword = credentials.roomPassword === undefined ? prior?.encrypted_password ?? null : credentials.roomPassword;
-      const roomVisible = input.roomVisible ?? prior?.room_visible ?? false;
+      const credentialsChanged = credentials.roomId !== undefined || credentials.roomPassword !== undefined;
+      const roomVisible = credentialsChanged ? false : input.roomVisible ?? prior?.room_visible ?? false;
       if (prior || nextRoomId || nextPassword || input.roomVisible !== undefined) {
         await client.query(
           `INSERT INTO match_room_credentials (match_id, encrypted_room_id, encrypted_password, room_visible)
@@ -813,28 +967,38 @@ export class PostgresCompetitionRepository implements CompetitionRepository {
     return this.transaction(async (client) => {
       const match = await client.query<{ id: string; status: MatchView['status'] }>('SELECT id::text AS id, status FROM matches WHERE id=$1 FOR UPDATE', [id]);
       if (!match.rows[0]) return null;
-      if (Boolean(input.teamId) === Boolean(input.playerId)) throw new CompetitionError(400, 'INVALID_RESULT', 'Choose exactly one registered player or team.');
-      let winnerName = input.winnerName?.trim() ?? '';
-      if (input.teamId) {
-        const participant = await client.query<{ team_name: string }>(
-          `SELECT t.team_name FROM match_participants mp
-           JOIN tournament_registrations r ON r.id=mp.registration_id
-           JOIN teams t ON t.id=r.team_id
-           WHERE mp.match_id=$1 AND mp.status='eligible' AND r.team_id=$2 LIMIT 1`,
-          [id, input.teamId]
-        );
-        if (!participant.rows[0]) throw new CompetitionError(400, 'INVALID_RESULT_PARTICIPANT', 'The selected team is not registered for this match.');
-        winnerName = participant.rows[0].team_name;
-      } else if (input.playerId) {
-        const participant = await client.query<{ username: string }>(
-          `SELECT u.username FROM match_participants mp
-           JOIN registration_members rm ON rm.registration_id=mp.registration_id
-           JOIN users u ON u.id=rm.user_id
-           WHERE mp.match_id=$1 AND mp.status='eligible' AND rm.user_id=$2 AND rm.left_at IS NULL LIMIT 1`,
-          [id, input.playerId]
-        );
-        if (!participant.rows[0]) throw new CompetitionError(400, 'INVALID_RESULT_PARTICIPANT', 'The selected player is not registered for this match.');
-        winnerName = participant.rows[0].username;
+      const entries = input.entries ?? (input.placement !== undefined && input.points !== undefined && input.kills !== undefined
+        ? [{ ...input, placement: input.placement, points: input.points, kills: input.kills }]
+        : []);
+      if (!entries.length) throw new CompetitionError(400, 'INVALID_RESULT', 'At least one complete participant result is required.');
+      const winners: string[] = [];
+      for (const entry of entries) {
+        if (Boolean(entry.teamId) === Boolean(entry.playerId)) throw new CompetitionError(400, 'INVALID_RESULT', 'Choose exactly one registered player or team for each result.');
+        if (entry.teamId) {
+          const participant = await client.query<{ team_name: string }>(
+            `SELECT t.team_name FROM match_participants mp
+             JOIN tournament_registrations r ON r.id=mp.registration_id
+             JOIN teams t ON t.id=r.team_id
+             WHERE mp.match_id=$1 AND mp.status='eligible' AND r.status='registered' AND r.team_id=$2 LIMIT 1`,
+            [id, entry.teamId]
+          );
+          if (!participant.rows[0]) throw new CompetitionError(400, 'INVALID_RESULT_PARTICIPANT', 'The selected team is not registered for this match.');
+          winners.push(participant.rows[0].team_name);
+        } else if (entry.playerId) {
+          const participant = await client.query<{ username: string }>(
+            `SELECT u.username FROM match_participants mp
+             JOIN tournament_registrations r ON r.id=mp.registration_id AND r.status='registered'
+             JOIN registration_members rm ON rm.registration_id=r.id
+             JOIN users u ON u.id=rm.user_id
+             WHERE mp.match_id=$1 AND mp.status='eligible' AND rm.user_id=$2 AND rm.left_at IS NULL LIMIT 1`,
+            [id, entry.playerId]
+          );
+          if (!participant.rows[0]) throw new CompetitionError(400, 'INVALID_RESULT_PARTICIPANT', 'The selected player is not registered for this match.');
+          winners.push(participant.rows[0].username);
+        }
+      }
+      if (new Set(entries.map((entry) => `${entry.teamId ?? ''}:${entry.playerId ?? ''}`)).size !== entries.length) {
+        throw new CompetitionError(400, 'DUPLICATE_RESULT_PARTICIPANT', 'Each participant may appear only once in a match result.');
       }
       if (input.status === 'published') await client.query("UPDATE match_result_submissions SET status='superseded', updated_at=now() WHERE match_id=$1 AND status='published'", [id]);
       const submission = await client.query<{ id: string }>(
@@ -843,11 +1007,13 @@ export class PostgresCompetitionRepository implements CompetitionRepository {
       );
       const submissionId = submission.rows[0]?.id;
       if (!submissionId) throw new CompetitionError(503, 'SERVICE_UNAVAILABLE', 'Competition storage is temporarily unavailable.');
-      await client.query(
-        `INSERT INTO match_result_entries (submission_id,match_id,team_id,player_id,winner_name_snapshot,placement,points,kills,remarks)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-        [submissionId, id, input.teamId ?? null, input.playerId ?? null, winnerName, input.placement, input.points, input.kills, input.remarks ?? '']
-      );
+      for (const [index, entry] of entries.entries()) {
+        await client.query(
+          `INSERT INTO match_result_entries (submission_id,match_id,team_id,player_id,winner_name_snapshot,placement,points,kills,remarks)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+          [submissionId, id, entry.teamId ?? null, entry.playerId ?? null, winners[index], entry.placement, entry.points, entry.kills, entry.remarks ?? '']
+        );
+      }
       await client.query('UPDATE matches SET result_status=$2, updated_at=now() WHERE id=$1', [id, input.status]);
       return this.loadMatch(client, id, true);
     });
@@ -859,7 +1025,8 @@ export class PostgresCompetitionRepository implements CompetitionRepository {
         `SELECT rc.encrypted_room_id, rc.encrypted_password, rc.room_visible, m.status,
           EXISTS (
             SELECT 1 FROM match_participants mp
-            JOIN registration_members rm ON rm.registration_id=mp.registration_id
+            JOIN tournament_registrations r ON r.id=mp.registration_id AND r.tournament_id=mp.tournament_id AND r.status='registered'
+            JOIN registration_members rm ON rm.registration_id=r.id
             WHERE mp.match_id=m.id AND mp.status='eligible' AND rm.user_id=$2 AND rm.left_at IS NULL
           ) AS participant
          FROM matches m JOIN match_room_credentials rc ON rc.match_id=m.id WHERE m.id=$1`,

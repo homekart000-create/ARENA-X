@@ -365,10 +365,16 @@ test('admin tournament/match writes are attempted through backend authorization,
 test('match results and protected room credentials use their dedicated endpoints without local persistence', async () => {
   const harness = createCompetitionHarness(baseHandler);
   await ready(harness.stores);
-  const result = await harness.stores.matches.submitMatchResult(matchId, { status: 'published', teamId, placement: 1, points: 10, kills: 4 });
+  const result = await harness.stores.matches.submitMatchResult(matchId, {
+    status: 'published',
+    entries: [
+      { teamId, placement: 1, points: 10, kills: 4 },
+      { playerId: userId, placement: 2, points: 6, kills: 2 }
+    ]
+  });
   assert.equal(result.success, true);
   const resultCall = harness.calls.find((call) => call.url === `/api/matches/${matchId}/result`);
-  assert.equal(body(resultCall).teamId, teamId);
+  assert.deepEqual(body(resultCall).entries.map((entry) => entry.teamId || entry.playerId), [teamId, userId]);
   assert.equal(Object.hasOwn(body(resultCall), 'userId'), false);
   const room = await harness.stores.matches.getRoomCredentials(matchId);
   assert.equal(room.roomPassword, 'SECRET-1');
@@ -429,7 +435,8 @@ test('migrated pages load the API stores in order; PWA and notification page rem
     assert.match(markup, /js\/pwa\.js/);
   }
   const notifications = fs.readFileSync(path.join(root, 'notifications.html'), 'utf8');
-  assert.doesNotMatch(notifications, /js\/competition-api\.js/);
+  assert.ok(notifications.indexOf('js/auth.js') < notifications.indexOf('js/competition-api.js'));
+  assert.ok(notifications.indexOf('js/competition-api.js') < notifications.indexOf('js/notifications.js'));
   assert.match(notifications, /js\/notifications\.js/);
   assert.match(fs.readFileSync(path.join(root, 'service-worker.js'), 'utf8'), /addEventListener\('fetch'/);
   assert.match(fs.readFileSync(path.join(root, 'matches.html'), 'utf8'), /Only authorized admins can manage matches/);

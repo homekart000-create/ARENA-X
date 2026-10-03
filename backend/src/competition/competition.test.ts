@@ -17,6 +17,7 @@ import type {
   MatchPatch,
   MatchResultInput,
   MatchView,
+  RegisteredParticipantView,
   RegistrationView,
   RoomCredentials,
   TeamInput,
@@ -27,7 +28,8 @@ import type {
   TournamentPatch,
   TournamentStatus,
   TournamentType,
-  TournamentView
+  TournamentView,
+  UserNotificationView
 } from './contracts.js';
 import { CompetitionError } from './contracts.js';
 
@@ -96,6 +98,7 @@ interface MemoryMatch extends MatchView {
   readonly roomVisible: boolean;
   readonly resultStatus: 'pending' | 'submitted' | 'published';
   readonly submittedResult?: MatchView['result'];
+  readonly submittedResults?: MatchView['results'];
 }
 
 class MemoryCompetitionRepository implements CompetitionRepository {
@@ -106,6 +109,7 @@ class MemoryCompetitionRepository implements CompetitionRepository {
   readonly invitations = new Map<string, InvitationView>();
   readonly registrations = new Map<string, MemoryRegistration>();
   readonly matches = new Map<string, MemoryMatch>();
+  readonly notifications = new Map<string, UserNotificationView & { userId: string; notificationKey: string }>();
   readonly walletBalances = new Map<string, number>();
   readonly entryFees = new Map<string, MemoryEntryFee>();
   walletWrites = 0;
@@ -318,14 +322,14 @@ class MemoryCompetitionRepository implements CompetitionRepository {
   }
 
   private publicMatch(match: MemoryMatch, includeRoomVisibility = false): MatchView {
-    const { roomIdCipher: _roomId, roomPasswordCipher: _password, roomVisible: _visible, submittedResult: _submitted, ...publicFields } = match;
-    void _roomId; void _password; void _visible; void _submitted;
+    const { roomIdCipher: _roomId, roomPasswordCipher: _password, roomVisible: _visible, submittedResult: _submitted, submittedResults: _submittedResults, ...publicFields } = match;
+    void _roomId; void _password; void _visible; void _submitted; void _submittedResults;
     const projection = {
       ...publicFields,
       ...(includeRoomVisibility ? { roomVisible: match.roomVisible } : {})
     };
-    return match.resultStatus === 'published' && match.submittedResult
-      ? { ...projection, result: match.submittedResult }
+    return match.resultStatus === 'published' && match.submittedResults?.[0]
+      ? { ...projection, result: match.submittedResults[0], results: match.submittedResults }
       : projection;
   }
 
@@ -333,9 +337,88 @@ class MemoryCompetitionRepository implements CompetitionRepository {
     return [...this.matches.values()].filter((match) => includePrivate || match.visibility === 'public').map((match) => this.publicMatch(match, includePrivate));
   }
 
-  async getMatch(id: string, includePrivate: boolean): Promise<MatchView | null> {
+  async getMatch(id: string, includePrivate: boolean, userId?: string): Promise<MatchView | null> {
     const match = this.matches.get(id);
-    return match && (includePrivate || match.visibility === 'public') ? this.publicMatch(match, includePrivate) : null;
+    const participant = Boolean(userId && match?.registrationIds.some((registrationId) =>
+      this.registrations.get(registrationId)?.memberIds.includes(userId)
+    ));
+    return match && (includePrivate || match.visibility === 'public' || participant) ? this.publicMatch(match, includePrivate) : null;
+  }
+
+  async listMyMatches(userId: string): Promise<readonly MatchView[]> {
+    return [...this.matches.values()]
+      .filter((match) => match.registrationIds.some((registrationId) =>
+        this.registrations.get(registrationId)?.status === 'registered'
+        && this.registrations.get(registrationId)?.memberIds.includes(userId)
+      ))
+      .map((match) => this.publicMatch(match));
+  }
+
+  private participants(registrationIds: readonly string[]): RegisteredParticipantView[] {
+    return registrationIds.flatMap((registrationId) => {
+      const registration = this.registrations.get(registrationId);
+      if (!registration || registration.status !== 'registered') return [];
+      const team = registration.teamId ? this.teams.get(registration.teamId) : null;
+      return [{
+        registrationId,
+        teamId: registration.teamId,
+        teamName: team?.teamName ?? null,
+        players: registration.memberIds.map((userId) => ({ userId, username: this.usernames.get(userId) ?? 'player' }))
+      }];
+    });
+  }
+
+  async listTournamentParticipants(tournamentId: string): Promise<readonly RegisteredParticipantView[] | null> {
+    if (!this.tournaments.has(tournamentId)) return null;
+    return this.participants([...this.registrations.values()]
+      .filter((registration) => registration.tournamentId === tournamentId)
+      .map((registration) => registration.registrationId));
+  }
+
+  async listMatchParticipants(matchId: string): Promise<readonly RegisteredParticipantView[] | null> {
+    const match = this.matches.get(matchId);
+    return match ? this.participants(match.registrationIds) : null;
+  }
+
+  async publishMatchNotifications(matchId: string): Promise<number | null> {
+    const match = this.matches.get(matchId);
+    if (!match) return null;
+    if (!match.roomIdCipher || !match.roomPasswordCipher || !['upcoming', 'live'].includes(match.status)) {
+      return null;
+    }
+    this.matches.set(matchId, { ...match, roomVisible: true });
+    let created = 0;
+    const registrations = match.registrationIds
+      .map((registrationId) => this.registrations.get(registrationId))
+      .filter((registration) => registration?.status === 'registered');
+    for (const registration of registrations) {
+      for (const userId of registration!.memberIds) {
+        const notificationKey = `match-room:${matchId}`;
+        const key = `${userId}:${notificationKey}`;
+        if (this.notifications.has(key)) continue;
+        this.notifications.set(key, {
+          id: randomUUID(), userId, notificationKey, type: 'match_room_available',
+          title: 'Match room available',
+          message: 'Room credentials are available for your registered match. Open the match to view them securely.',
+          relatedId: matchId, createdAt: new Date().toISOString(), read: false
+        });
+        created += 1;
+      }
+    }
+    return created;
+  }
+
+  async listNotifications(userId: string): Promise<readonly UserNotificationView[]> {
+    return [...this.notifications.values()].filter((item) => item.userId === userId)
+      .map(({ userId: _userId, notificationKey: _key, ...item }) => item);
+  }
+
+  async markNotificationRead(userId: string, notificationId: string): Promise<boolean> {
+    const entry = [...this.notifications.entries()].find(([, item]) => item.userId === userId && item.id === notificationId);
+    if (!entry) return false;
+    const [key, item] = entry;
+    this.notifications.set(key, { ...item, read: true });
+    return true;
   }
 
   async createMatch(ownerId: string, input: MatchInput, roomId: Buffer | null, roomPassword: Buffer | null): Promise<MatchView> {
@@ -368,7 +451,9 @@ class MemoryCompetitionRepository implements CompetitionRepository {
       participantCount: input.registrationIds?.length ?? match.participantCount,
       roomIdCipher: credentials.roomId === undefined ? match.roomIdCipher : credentials.roomId,
       roomPasswordCipher: credentials.roomPassword === undefined ? match.roomPasswordCipher : credentials.roomPassword,
-      roomVisible: input.roomVisible ?? match.roomVisible,
+      roomVisible: credentials.roomId !== undefined || credentials.roomPassword !== undefined
+        ? false
+        : input.roomVisible ?? match.roomVisible,
       updatedAt: new Date().toISOString()
     };
     this.matches.set(id, updated);
@@ -378,12 +463,16 @@ class MemoryCompetitionRepository implements CompetitionRepository {
   async setMatchResult(id: string, _submittedByUserId: string, input: MatchResultInput): Promise<MatchView | null> {
     const match = this.matches.get(id);
     if (!match) return null;
-    if (input.teamId && !match.registrationIds.some((registrationId) => this.registrations.get(registrationId)?.teamId === input.teamId)) throw new CompetitionError(400, 'INVALID_RESULT_PARTICIPANT', 'Team is not a match participant.');
-    if (input.playerId && !match.registrationIds.some((registrationId) => this.registrations.get(registrationId)?.memberIds.includes(input.playerId!))) throw new CompetitionError(400, 'INVALID_RESULT_PARTICIPANT', 'Player is not a match participant.');
-    const winningTeam = input.teamId ? this.teams.get(input.teamId) : undefined;
-    const winnerName = winningTeam?.teamName ?? (input.playerId ? this.usernames.get(input.playerId) : undefined) ?? 'Test winner';
-    const result = { winnerName, placement: input.placement, points: input.points, kills: input.kills, remarks: input.remarks ?? '' };
-    const updated: MemoryMatch = { ...match, resultStatus: input.status, ...(input.status === 'published' ? { submittedResult: result } : {}), updatedAt: new Date().toISOString() };
+    const entries = input.entries ?? (input.placement !== undefined && input.points !== undefined && input.kills !== undefined ? [input as MatchResultInput & { placement: number; points: number; kills: number }] : []);
+    const results = entries.map((entry) => {
+      if (Boolean(entry.teamId) === Boolean(entry.playerId)) throw new CompetitionError(400, 'INVALID_RESULT', 'Choose exactly one participant.');
+      if (entry.teamId && !match.registrationIds.some((registrationId) => this.registrations.get(registrationId)?.status === 'registered' && this.registrations.get(registrationId)?.teamId === entry.teamId)) throw new CompetitionError(400, 'INVALID_RESULT_PARTICIPANT', 'Team is not a match participant.');
+      if (entry.playerId && !match.registrationIds.some((registrationId) => this.registrations.get(registrationId)?.status === 'registered' && this.registrations.get(registrationId)?.memberIds.includes(entry.playerId!))) throw new CompetitionError(400, 'INVALID_RESULT_PARTICIPANT', 'Player is not a match participant.');
+      const winningTeam = entry.teamId ? this.teams.get(entry.teamId) : undefined;
+      const winnerName = winningTeam?.teamName ?? (entry.playerId ? this.usernames.get(entry.playerId) : undefined) ?? 'Test winner';
+      return { winnerName, placement: entry.placement, points: entry.points, kills: entry.kills, remarks: entry.remarks ?? '' };
+    });
+    const updated: MemoryMatch = { ...match, resultStatus: input.status, ...(input.status === 'published' ? { submittedResult: results[0], submittedResults: results } : {}), updatedAt: new Date().toISOString() };
     this.matches.set(id, updated);
     return this.publicMatch(updated, true);
   }
@@ -391,7 +480,10 @@ class MemoryCompetitionRepository implements CompetitionRepository {
   async getRoomCredentials(id: string, userId: string, isAdmin: boolean, decrypt: (roomId: Buffer, password: Buffer) => RoomCredentials): Promise<RoomCredentials | null> {
     const match = this.matches.get(id);
     if (!match || !match.roomVisible || !['upcoming', 'live'].includes(match.status)) return null;
-    const participant = match.registrationIds.some((registrationId) => this.registrations.get(registrationId)?.memberIds.includes(userId));
+    const participant = match.registrationIds.some((registrationId) => {
+      const registration = this.registrations.get(registrationId);
+      return registration?.status === 'registered' && registration.memberIds.includes(userId);
+    });
     if (!isAdmin && !participant) return null;
     return decrypt(match.roomIdCipher ?? Buffer.alloc(0), match.roomPasswordCipher ?? Buffer.alloc(0));
   }
@@ -781,11 +873,31 @@ test('public match listing and details omit room credentials', async (context) =
 test('admin can create a match; normal users cannot modify it', async (context) => {
   const harness = await createHarness(context);
   const tournament = harness.domain.seedTournament();
+  const deniedCreate = await harness.app.inject({
+    method: 'POST', url: '/api/matches', headers: jsonHeaders(harness.userCookie),
+    payload: { tournamentId: tournament.id, matchNumber: 1, title: 'Denied', game: 'Free Fire', mode: 'BR', startsAt: new Date().toISOString(), maxPlayers: 8 }
+  });
   const created = await createMatch(harness, tournament.id);
   const match = created.json().match as MatchView;
   assert.equal(created.statusCode, 201);
+  assert.equal(deniedCreate.statusCode, 403);
   const denied = await harness.app.inject({ method: 'PATCH', url: `/api/matches/${match.matchId}`, headers: jsonHeaders(harness.userCookie), payload: { status: 'live' } });
   assert.equal(denied.statusCode, 403);
+});
+
+test('admin can view tournament and match registrations while other users cannot', async (context) => {
+  const harness = await createHarness(context);
+  const tournament = harness.domain.seedTournament('Solo');
+  const registration = await registerTournament(harness, tournament.id);
+  const match = (await createMatch(harness, tournament.id)).json().match as MatchView;
+  const tournamentRoster = await harness.app.inject({ method: 'GET', url: `/api/tournaments/${tournament.id}/registrations`, headers: { cookie: harness.adminCookie } });
+  const matchRoster = await harness.app.inject({ method: 'GET', url: `/api/matches/${match.matchId}/participants`, headers: { cookie: harness.adminCookie } });
+  const deniedRoster = await harness.app.inject({ method: 'GET', url: `/api/matches/${match.matchId}/participants`, headers: { cookie: harness.userCookie } });
+  assert.equal(tournamentRoster.statusCode, 200);
+  assert.equal(matchRoster.statusCode, 200);
+  assert.equal(matchRoster.json().participants[0].registrationId, registration.json().registration.registrationId);
+  assert.equal(matchRoster.json().participants[0].players[0].userId, harness.user.userId);
+  assert.equal(deniedRoster.statusCode, 403);
 });
 
 test('protected room information requires an authenticated participant or admin', async (context) => {
@@ -803,6 +915,85 @@ test('protected room information requires an authenticated participant or admin'
   assert.equal(participant.statusCode, 200);
   assert.equal(participant.json().room.roomPassword, 'ROOM-SECRET');
   assert.equal(registration.statusCode, 201);
+});
+
+test('room publication notifies only registered participants and is idempotent', async (context) => {
+  const harness = await createHarness(context);
+  const tournament = harness.domain.seedTournament('Solo');
+  await registerTournament(harness, tournament.id, harness.userCookie);
+  const otherRegistration = await registerTournament(harness, tournament.id, extractCookie(
+    await harness.app.inject({
+      method: 'POST', url: '/api/auth/login', headers: { origin: TEST_ORIGIN },
+      payload: { identifier: harness.targets[0]!.email, password: TEST_PASSWORD }
+    })
+  ));
+  assert.equal(otherRegistration.statusCode, 201);
+  const match = (await createMatch(harness, tournament.id)).json().match as MatchView;
+  const beforeSave = await harness.app.inject({
+    method: 'POST', url: `/api/matches/${match.matchId}/notify-room`, headers: jsonHeaders(harness.adminCookie), payload: {}
+  });
+  const unauthorizedNotify = await harness.app.inject({
+    method: 'POST', url: `/api/matches/${match.matchId}/notify-room`, headers: jsonHeaders(harness.userCookie), payload: {}
+  });
+  assert.equal(beforeSave.statusCode, 409);
+  assert.equal(unauthorizedNotify.statusCode, 403);
+  const setCredentials = await harness.app.inject({
+    method: 'PATCH', url: `/api/matches/${match.matchId}`, headers: jsonHeaders(harness.adminCookie),
+    payload: { roomId: 'ROOM-42', roomPassword: 'ROOM-SECRET' }
+  });
+  assert.equal(setCredentials.statusCode, 200);
+  const published = await harness.app.inject({
+    method: 'POST', url: `/api/matches/${match.matchId}/notify-room`, headers: jsonHeaders(harness.adminCookie), payload: {}
+  });
+  const repeated = await harness.app.inject({
+    method: 'POST', url: `/api/matches/${match.matchId}/notify-room`, headers: jsonHeaders(harness.adminCookie), payload: {}
+  });
+  const ownNotifications = await harness.app.inject({ method: 'GET', url: '/api/notifications', headers: { cookie: harness.userCookie } });
+  const otherNotifications = await harness.app.inject({
+    method: 'GET', url: '/api/notifications',
+    headers: { cookie: extractCookie(await harness.app.inject({
+      method: 'POST', url: '/api/auth/login', headers: { origin: TEST_ORIGIN },
+      payload: { identifier: harness.targets[0]!.email, password: TEST_PASSWORD }
+    })) }
+  });
+  const unrelatedNotifications = await harness.app.inject({
+    method: 'GET', url: '/api/notifications',
+    headers: { cookie: extractCookie(await harness.app.inject({
+      method: 'POST', url: '/api/auth/login', headers: { origin: TEST_ORIGIN },
+      payload: { identifier: harness.targets[1]!.email, password: TEST_PASSWORD }
+    })) }
+  });
+  assert.equal(published.statusCode, 200);
+  assert.equal(published.json().notified, 2);
+  assert.equal(repeated.json().notified, 0);
+  assert.equal(ownNotifications.json().notifications.length, 1);
+  assert.equal(otherNotifications.json().notifications.length, 1);
+  assert.equal(unrelatedNotifications.json().notifications.length, 0);
+  assert.equal(JSON.stringify(ownNotifications.json()).includes('ROOM-SECRET'), false);
+  const ownRoom = await harness.app.inject({
+    method: 'GET', url: `/api/matches/${match.matchId}/room-credentials`, headers: { cookie: harness.userCookie }
+  });
+  assert.equal(ownRoom.statusCode, 200);
+  assert.equal(ownRoom.json().room.roomPassword, 'ROOM-SECRET');
+});
+
+test('private matches are visible to their registered players and not unrelated accounts', async (context) => {
+  const harness = await createHarness(context);
+  const tournament = harness.domain.seedTournament('Solo');
+  await registerTournament(harness, tournament.id);
+  const match = (await createMatch(harness, tournament.id, { visibility: 'private' })).json().match as MatchView;
+  const participant = await harness.app.inject({
+    method: 'GET', url: `/api/matches/${match.matchId}`, headers: { cookie: harness.userCookie }
+  });
+  const unrelatedLogin = await harness.app.inject({
+    method: 'POST', url: '/api/auth/login', headers: { origin: TEST_ORIGIN },
+    payload: { identifier: harness.targets[0]!.email, password: TEST_PASSWORD }
+  });
+  const unrelated = await harness.app.inject({
+    method: 'GET', url: `/api/matches/${match.matchId}`, headers: { cookie: extractCookie(unrelatedLogin) }
+  });
+  assert.equal(participant.statusCode, 200);
+  assert.equal(unrelated.statusCode, 404);
 });
 
 test('room credential decryption failures return a safe error without plaintext or key material', async (context) => {
@@ -839,11 +1030,16 @@ test('unpublished match results are not visible publicly', async (context) => {
   const tournament = harness.domain.seedTournament('Solo');
   await registerTournament(harness, tournament.id);
   const match = (await createMatch(harness, tournament.id)).json().match as MatchView;
+  const denied = await harness.app.inject({
+    method: 'POST', url: `/api/matches/${match.matchId}/result`, headers: jsonHeaders(harness.userCookie),
+    payload: { status: 'published', playerId: harness.user.userId, placement: 1, points: 10, kills: 3 }
+  });
   const submitted = await harness.app.inject({
     method: 'POST', url: `/api/matches/${match.matchId}/result`, headers: jsonHeaders(harness.adminCookie),
     payload: { status: 'submitted', playerId: harness.user.userId, placement: 1, points: 10, kills: 3 }
   });
   const publicRead = await harness.app.inject({ method: 'GET', url: `/api/matches/${match.matchId}` });
+  assert.equal(denied.statusCode, 403);
   assert.equal(submitted.statusCode, 200);
   assert.equal(publicRead.json().match.result, undefined);
 });
@@ -852,16 +1048,30 @@ test('published match results become public', async (context) => {
   const harness = await createHarness(context);
   const tournament = harness.domain.seedTournament('Solo');
   await registerTournament(harness, tournament.id);
+  const secondParticipant = harness.targets[0]!;
+  const secondLogin = await harness.app.inject({
+    method: 'POST', url: '/api/auth/login', headers: { origin: TEST_ORIGIN },
+    payload: { identifier: secondParticipant.email, password: TEST_PASSWORD }
+  });
+  await registerTournament(harness, tournament.id, extractCookie(secondLogin));
   const match = (await createMatch(harness, tournament.id)).json().match as MatchView;
   const publish = await harness.app.inject({
     method: 'POST', url: `/api/matches/${match.matchId}/result`, headers: jsonHeaders(harness.adminCookie),
-    payload: { status: 'published', playerId: harness.user.userId, winnerName: 'Forged Winner', placement: 1, points: 10, kills: 3 }
+    payload: {
+      status: 'published',
+      entries: [
+        { playerId: harness.user.userId, placement: 1, points: 10, kills: 3 },
+        { playerId: secondParticipant.userId, placement: 2, points: 7, kills: 2 }
+      ]
+    }
   });
   const publicRead = await harness.app.inject({ method: 'GET', url: `/api/matches/${match.matchId}` });
   assert.equal(publish.statusCode, 200);
   assert.equal(publicRead.json().match.result.placement, 1);
   assert.equal(publicRead.json().match.result.points, 10);
   assert.equal(publicRead.json().match.result.winnerName, harness.user.username);
+  assert.equal(publicRead.json().match.results.length, 2);
+  assert.equal(publicRead.json().match.results[1].winnerName, secondParticipant.username);
 });
 
 test('private matches are hidden from the public and visible to admins', async (context) => {

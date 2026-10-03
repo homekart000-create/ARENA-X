@@ -115,10 +115,9 @@
         mode: match.mode,
         date: match.date,
         startTime: match.startTime,
+        startsAt: match.startsAt,
         status: match.status,
         map: match.map,
-        roomId: match.roomId || '',
-        roomPassword: match.roomPassword || '',
         roomVisible: Boolean(match.roomVisible),
         resultStatus: match.resultStatus,
         participantCount: match.participantCount,
@@ -142,24 +141,74 @@
 
   async function setTournamentStatus(tournamentId, status) {
     if (!isAuthorized()) return { success: false, message: 'Admin access required.' };
-    if (!['Upcoming', 'Live', 'Completed'].includes(status)) return { success: false, message: 'Choose a valid tournament status.' };
+    if (!['draft', 'upcoming', 'live', 'completed', 'cancelled'].includes(String(status).toLowerCase())) return { success: false, message: 'Choose a valid tournament status.' };
     const result = await tournaments.updateTournament(tournamentId, { status });
     if (!result.success) return result;
     logAction('tournament_status_changed', 'tournament', tournamentId, `Changed status to ${status}.`);
     return { success: true };
   }
 
+  async function createTournament(values) {
+    if (!isAuthorized()) return { success: false, message: 'Admin access required.' };
+    const result = await tournaments.createTournament(values);
+    if (!result.success) return result;
+    logAction('tournament_created', 'tournament', result.tournament.id, 'Created a tournament.');
+    return result;
+  }
+
+  async function updateTournament(tournamentId, values) {
+    if (!isAuthorized()) return { success: false, message: 'Admin access required.' };
+    const result = await tournaments.updateTournament(tournamentId, values);
+    if (!result.success) return result;
+    logAction('tournament_updated', 'tournament', tournamentId, 'Updated tournament details.');
+    return result;
+  }
+
+  async function createMatch(values) {
+    if (!isAuthorized()) return { success: false, message: 'Admin access required.' };
+    const result = await matches.createMatch(values);
+    if (!result.success) return result;
+    logAction('match_created', 'match', result.match.matchId, 'Created a tournament match.');
+    return result;
+  }
+
   async function updateMatch(matchId, values) {
     if (!isAuthorized()) return { success: false, message: 'Admin access required.' };
     const result = await matches.updateMatch(matchId, {
-      status: values.status,
+      ...values,
       ...(values.roomId ? { roomId: values.roomId } : {}),
       ...(values.roomPassword ? { roomPassword: values.roomPassword } : {}),
-      roomVisible: Boolean(values.roomVisible)
+      ...(values.roomVisible !== undefined ? { roomVisible: Boolean(values.roomVisible) } : {})
     });
     if (!result.success) return result;
-    logAction('match_updated', 'match', matchId, `Changed match status to ${result.match.status} and updated room visibility.`);
+    logAction('match_updated', 'match', matchId, `Updated match details; status is ${result.match.status}.`);
     return { success: true };
+  }
+
+  async function submitMatchResult(matchId, values) {
+    if (!isAuthorized()) return { success: false, message: 'Admin access required.' };
+    const result = await matches.submitMatchResult(matchId, values);
+    if (!result.success) return result;
+    logAction('match_result_recorded', 'match', matchId, `Recorded a match result with status ${values.status || 'published'}.`);
+    return result;
+  }
+
+  async function getMatchParticipants(matchId) {
+    if (!isAuthorized()) return { success: false, message: 'Admin access required.' };
+    return matches.getMatchParticipants(matchId);
+  }
+
+  async function getTournamentParticipants(tournamentId) {
+    if (!isAuthorized()) return { success: false, message: 'Admin access required.' };
+    return tournaments.getTournamentParticipants(tournamentId);
+  }
+
+  async function notifyMatchPlayers(matchId) {
+    if (!isAuthorized()) return { success: false, message: 'Admin access required.' };
+    const result = await matches.notifyMatchPlayers(matchId);
+    if (!result.success) return result;
+    logAction('match_room_published', 'match', matchId, `Published room access and notified ${result.notified} registered players.`);
+    return result;
   }
 
   globalThis.ArenaAdmin = Object.freeze({
@@ -171,7 +220,14 @@
     getMatches,
     getWalletTransactions,
     getAdminActivity,
+    createTournament,
+    updateTournament,
     setTournamentStatus,
-    updateMatch
+    createMatch,
+    updateMatch,
+    submitMatchResult,
+    getMatchParticipants,
+    getTournamentParticipants,
+    notifyMatchPlayers
   });
 })();

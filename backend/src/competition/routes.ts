@@ -190,6 +190,15 @@ export function registerCompetitionRoutes(app: FastifyInstance, options: Competi
     return { tournament };
   });
 
+  app.get<{ Params: IdParams }>('/api/tournaments/:id/registrations', {
+    preHandler: [requireAuth, requireAdmin],
+    schema: { params: idParamsSchema }
+  }, async (request, reply) => {
+    const registrations = await repository.listTournamentParticipants(request.params.id);
+    if (!registrations) return reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'Tournament not found.' } });
+    return { registrations };
+  });
+
   app.post<{ Params: IdParams; Body: TournamentRegistrationBody }>('/api/tournaments/:id/register', {
     preHandler: requireAuth,
     schema: {
@@ -294,13 +303,30 @@ export function registerCompetitionRoutes(app: FastifyInstance, options: Competi
     matches: await repository.listMatches(request.authUser?.role === 'admin')
   }));
 
+  app.get('/api/matches/mine', { preHandler: requireAuth }, async (request) => ({
+    matches: await repository.listMyMatches(request.authUser!.userId)
+  }));
+
   app.get<{ Params: IdParams }>('/api/matches/:id', {
     preHandler: optionalAuth,
     schema: { params: idParamsSchema }
   }, async (request, reply) => {
-    const match = await repository.getMatch(request.params.id, request.authUser?.role === 'admin');
+    const match = await repository.getMatch(
+      request.params.id,
+      request.authUser?.role === 'admin',
+      request.authUser?.userId
+    );
     if (!match) return reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'Match not found.' } });
     return { match };
+  });
+
+  app.get<{ Params: IdParams }>('/api/matches/:id/participants', {
+    preHandler: [requireAuth, requireAdmin],
+    schema: { params: idParamsSchema }
+  }, async (request, reply) => {
+    const participants = await repository.listMatchParticipants(request.params.id);
+    if (!participants) return reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'Match not found.' } });
+    return { participants };
   });
 
   app.post<{ Body: MatchInput }>('/api/matches', {
@@ -345,7 +371,7 @@ export function registerCompetitionRoutes(app: FastifyInstance, options: Competi
       params: idParamsSchema,
       body: {
         type: 'object', additionalProperties: false,
-        required: ['status', 'placement', 'points', 'kills'],
+        required: ['status'],
         properties: {
           status: { type: 'string', enum: ['submitted', 'published'] },
           playerId: { type: 'string', pattern: uuidPattern },
@@ -354,10 +380,34 @@ export function registerCompetitionRoutes(app: FastifyInstance, options: Competi
           placement: { type: 'integer', minimum: 0 },
           points: { type: 'integer', minimum: 0 },
           kills: { type: 'integer', minimum: 0 },
-          remarks: { type: 'string', maxLength: 500 }
+          remarks: { type: 'string', maxLength: 500 },
+          entries: {
+            type: 'array', minItems: 1, maxItems: 200,
+            items: {
+              type: 'object', additionalProperties: false,
+              required: ['placement', 'points', 'kills'],
+              properties: {
+                playerId: { type: 'string', pattern: uuidPattern },
+                teamId: { type: 'string', pattern: uuidPattern },
+                winnerName: { type: 'string', maxLength: 120 },
+                placement: { type: 'integer', minimum: 0 },
+                points: { type: 'integer', minimum: 0 },
+                kills: { type: 'integer', minimum: 0 },
+                remarks: { type: 'string', maxLength: 500 }
+              },
+              anyOf: [{ required: ['playerId'] }, { required: ['teamId'] }],
+              not: { required: ['playerId', 'teamId'] }
+            }
+          }
         },
-        anyOf: [{ required: ['playerId'] }, { required: ['teamId'] }],
-        not: { required: ['playerId', 'teamId'] }
+        oneOf: [
+          { required: ['entries'], not: { anyOf: [{ required: ['playerId'] }, { required: ['teamId'] }] } },
+          {
+            required: ['placement', 'points', 'kills'],
+            anyOf: [{ required: ['playerId'] }, { required: ['teamId'] }],
+            not: { required: ['playerId', 'teamId'] }
+          }
+        ]
       }
     }
   }, async (request, reply) => {
@@ -365,6 +415,30 @@ export function registerCompetitionRoutes(app: FastifyInstance, options: Competi
     const match = await repository.setMatchResult(request.params.id, request.authUser!.userId, request.body);
     if (!match) return reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'Match not found.' } });
     return { match };
+  });
+
+  app.post<{ Params: IdParams }>('/api/matches/:id/notify-room', {
+    preHandler: [requireAuth, requireAdmin],
+    schema: { params: idParamsSchema, body: { type: 'object', additionalProperties: false, maxProperties: 0 } }
+  }, async (request, reply) => {
+    if (!originAllowed(config, request.headers.origin)) return forbidden(reply);
+    const notified = await repository.publishMatchNotifications(request.params.id);
+    if (notified === null) return reply.code(409).send({ error: { code: 'ROOM_CREDENTIALS_UNAVAILABLE', message: 'Save both room credentials and ensure the match is upcoming or live before notifying players.' } });
+    return { notified };
+  });
+
+  app.get('/api/notifications', { preHandler: requireAuth }, async (request) => ({
+    notifications: await repository.listNotifications(request.authUser!.userId)
+  }));
+
+  app.patch<{ Params: IdParams }>('/api/notifications/:id/read', {
+    preHandler: requireAuth,
+    schema: { params: idParamsSchema, body: { type: 'object', additionalProperties: false, maxProperties: 0 } }
+  }, async (request, reply) => {
+    if (!originAllowed(config, request.headers.origin)) return forbidden(reply);
+    const updated = await repository.markNotificationRead(request.authUser!.userId, request.params.id);
+    if (!updated) return reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'Notification not found.' } });
+    return { success: true };
   });
 
   app.get<{ Params: IdParams }>('/api/matches/:id/room-credentials', {

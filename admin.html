@@ -30,7 +30,7 @@
     <div class="header-auth" id="header-auth"></div>
   </div></header>
   <main class="admin-main wrap" id="admin-app" hidden>
-    <section class="admin-heading"><div><p class="eyebrow"><span class="eyebrow-line"></span> OPERATIONS / DEMO ACCESS</p><h1>Admin <span>panel.</span></h1><p>Local browser data overview and reversible demo controls.</p></div><span class="admin-local-badge">LOCAL ONLY · NOT PRODUCTION SECURITY</span></section>
+    <section class="admin-heading"><div><p class="eyebrow"><span class="eyebrow-line"></span> OPERATIONS / BACKEND ADMIN</p><h1>Admin <span>panel.</span></h1><p>Manage tournaments, match schedules, registered participants, room access and results.</p></div><span class="admin-local-badge">SERVER AUTHORIZATION REQUIRED</span></section>
     <p class="admin-message" id="admin-message" role="status" aria-live="polite" hidden></p>
     <div class="admin-layout">
       <aside class="admin-sidebar" aria-label="Admin sections"><span>CONTROL ROOM</span><a href="#admin-overview">Overview</a><a href="#admin-users">Users</a><a href="#admin-tournaments">Tournaments</a><a href="#admin-teams">Teams</a><a href="#admin-matches">Matches</a><a href="#admin-transactions">Transactions</a><a href="#admin-audit">Admin activity</a></aside>
@@ -46,7 +46,19 @@
           <div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>User</th><th>Email</th><th>Role</th><th>Status</th><th>Created</th><th>Action</th></tr></thead><tbody id="admin-users-body"></tbody></table><p class="admin-empty" id="admin-users-empty" hidden>No users match these filters.</p></div>
         </section>
         <section class="admin-section" id="admin-tournaments"><div class="admin-section-heading"><div><p class="eyebrow"><span class="eyebrow-line"></span> EVENT CONTROL</p><h2>Tournament <span>management.</span></h2></div><span id="admin-tournaments-count" class="admin-section-count">0 TOURNAMENTS</span></div>
-          <div class="admin-filter-bar"><label class="admin-search"><span aria-hidden="true">⌕</span><input id="admin-tournament-search" type="search" placeholder="Search tournament or host" autocomplete="off"></label><label><span>GAME</span><select id="admin-tournament-game"><option value="all">All Games</option></select></label><label><span>STATUS</span><select id="admin-tournament-status"><option value="all">All Statuses</option><option value="Upcoming">Upcoming</option><option value="Live">Live</option><option value="Completed">Completed</option></select></label></div>
+          <details class="admin-operations"><summary>Create tournament</summary>
+            <form class="match-editor-form" id="admin-tournament-create-form">
+              <label>Name<input name="name" required minlength="2" maxlength="120"></label><label>Game<input name="game" required minlength="2" maxlength="60"></label>
+              <label>Format<select name="type" required><option value="Solo">Solo</option><option value="Duo">Duo</option><option value="Squad">Squad</option></select></label><label>Mode<input name="mode" required maxlength="100"></label>
+              <label>Entry fee (₹)<input name="entryFee" type="number" min="0" step="0.01" required></label><label>Prize pool (₹)<input name="prizePool" type="number" min="0" step="0.01" required></label>
+              <label>Registration slots<input name="maxSlots" type="number" min="1" step="1" required></label><label>Host<input name="host" maxlength="120"></label>
+              <label>Starts at<input name="startsAt" type="datetime-local" required></label><label>Registration deadline<input name="registrationDeadline" type="datetime-local" required></label>
+              <label>Map<input name="map" maxlength="80"></label><label>Banner key<input name="banner" maxlength="80"></label>
+              <label class="match-editor-wide">Description<textarea name="description" maxlength="5000" rows="2"></textarea></label>
+              <div class="match-editor-wide"><button class="button button-primary" type="submit">Create tournament</button></div>
+            </form>
+          </details>
+          <div class="admin-filter-bar"><label class="admin-search"><span aria-hidden="true">⌕</span><input id="admin-tournament-search" type="search" placeholder="Search tournament or host" autocomplete="off"></label><label><span>GAME</span><select id="admin-tournament-game"><option value="all">All Games</option></select></label><label><span>STATUS</span><select id="admin-tournament-status"><option value="all">All Statuses</option><option value="draft">Draft</option><option value="upcoming">Upcoming</option><option value="live">Live</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option></select></label></div>
           <div class="admin-table-wrap"><table class="admin-table admin-wide-table"><thead><tr><th>Tournament</th><th>Game</th><th>Entry</th><th>Prize</th><th>Participants</th><th>Start</th><th>Status / Details</th></tr></thead><tbody id="admin-tournaments-body"></tbody></table><p class="admin-empty" id="admin-tournaments-empty" hidden>No tournaments match these filters.</p></div>
         </section>
         <section class="admin-section" id="admin-teams"><div class="admin-section-heading"><div><p class="eyebrow"><span class="eyebrow-line"></span> ROSTER DIRECTORY</p><h2>Team <span>management.</span></h2></div><span id="admin-teams-count" class="admin-section-count">0 TEAMS</span></div>
@@ -54,6 +66,18 @@
           <div class="admin-table-wrap"><table class="admin-table admin-wide-table"><thead><tr><th>Team</th><th>Captain</th><th>Members</th><th>Stats</th><th>Created</th><th>View</th></tr></thead><tbody id="admin-teams-body"></tbody></table><p class="admin-empty" id="admin-teams-empty" hidden>No teams match this search.</p></div>
         </section>
         <section class="admin-section" id="admin-matches"><div class="admin-section-heading"><div><p class="eyebrow"><span class="eyebrow-line"></span> FIXTURE CONTROL</p><h2>Match <span>management.</span></h2></div><span id="admin-matches-count" class="admin-section-count">0 MATCHES</span></div>
+          <details class="admin-operations"><summary>Create match</summary>
+            <form class="match-editor-form" id="admin-match-create-form">
+              <label>Tournament<select name="tournamentId" id="admin-match-tournament" required><option value="">Select a tournament</option></select></label><label>Match number<input name="matchNumber" type="number" min="1" step="1" required></label>
+              <label>Title<input name="title" required maxlength="80"></label><label>Game<input name="game" required maxlength="60"></label>
+              <label>Match type / mode<input name="mode" required maxlength="80"></label><label>Scheduled date<input name="date" type="date" required></label>
+              <label>Scheduled time<input name="startTime" type="time" required></label><label>Status<select name="status"><option value="upcoming">Upcoming</option><option value="live">Live</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option></select></label>
+              <label>Map<input name="map" maxlength="80"></label><label>Maximum registrations<input name="maxPlayers" type="number" min="1" step="1" required></label>
+              <label class="match-editor-wide">Instructions<textarea name="instructions" maxlength="1000" rows="2"></textarea></label>
+              <label class="match-editor-wide">Registered teams / players <select name="registrationIds" id="admin-match-registrations" multiple size="5" aria-describedby="admin-match-registration-help"></select><small id="admin-match-registration-help">Leave empty to include every active tournament registration. Use Ctrl or Command to select specific registrations.</small></label>
+              <div class="match-editor-wide"><button class="button button-primary" type="submit">Create match</button></div>
+            </form>
+          </details>
           <div class="admin-filter-bar"><label class="admin-search"><span aria-hidden="true">⌕</span><input id="admin-match-search" type="search" placeholder="Search match or tournament" autocomplete="off"></label><label><span>STATUS</span><select id="admin-match-status"><option value="all">All Statuses</option><option value="upcoming">Upcoming</option><option value="live">Live</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option></select></label></div>
           <div class="admin-table-wrap"><table class="admin-table admin-wide-table"><thead><tr><th>Match / Tournament</th><th>Game / Mode</th><th>Schedule</th><th>Participants</th><th>Room visibility</th><th>Update / View</th></tr></thead><tbody id="admin-matches-body"></tbody></table><p class="admin-empty" id="admin-matches-empty" hidden>No matches match these filters.</p></div>
         </section>
@@ -62,7 +86,7 @@
           <p class="admin-empty" id="admin-wallet-unavailable">Cross-user wallet and transaction data is not available to admins through the current backend API.</p>
           <div class="admin-table-wrap"><table class="admin-table admin-wide-table"><thead><tr><th>Transaction / User</th><th>Type</th><th>Amount</th><th>Status</th><th>Description</th><th>Reference</th><th>Created</th></tr></thead><tbody id="admin-transactions-body"></tbody></table><p class="admin-empty" id="admin-transactions-empty" hidden>No wallet transactions match these filters.</p></div>
         </section>
-        <section class="admin-section" id="admin-audit"><div class="admin-section-heading"><div><p class="eyebrow"><span class="eyebrow-line"></span> LOCAL AUDIT / REVERSIBLE ACTIONS</p><h2>Admin <span>activity.</span></h2></div></div><div class="admin-audit-list" id="admin-audit-list"></div><p class="admin-empty" id="admin-audit-empty" hidden>No admin actions recorded.</p></section>
+        <section class="admin-section" id="admin-audit"><div class="admin-section-heading"><div><p class="eyebrow"><span class="eyebrow-line"></span> THIS BROWSER ONLY</p><h2>Activity <span>log.</span></h2></div></div><div class="admin-audit-list" id="admin-audit-list"></div><p class="admin-empty" id="admin-audit-empty" hidden>No admin actions recorded.</p></section>
       </div>
     </div>
   </main>

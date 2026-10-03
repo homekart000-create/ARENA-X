@@ -5,9 +5,11 @@
   const teamCache = new Map();
   const matchCache = new Map();
   const sessionRegistrations = new Map();
+  const myMatchCache = new Map();
   let tournamentsError = null;
   let teamsError = null;
   let matchesError = null;
+  let myMatchesAvailable = false;
   let tournamentsLoaded = false;
   let matchesLoaded = false;
   let userTeamLookupError = null;
@@ -52,7 +54,8 @@
 
   function matchFromApi(value) {
     const when = dateParts(value.startsAt);
-    const result = value.result ? { ...value.result, teamId: null, playerId: null } : null;
+    const results = Array.isArray(value.results) ? value.results.map((result) => ({ ...result })) : (value.result ? [{ ...value.result, teamId: null, playerId: null }] : []);
+    const result = results[0] || null;
     return {
       ...value,
       date: when.startDate,
@@ -60,7 +63,7 @@
       maxPlayers: Number(value.maxPlayers),
       roomVisible: value.roomVisible === true,
       resultStatus: result ? 'published' : 'pending',
-      results: result ? [result] : [],
+      results,
       roomId: '',
       roomPassword: '',
       participantRegistrationIds: null,
@@ -261,6 +264,7 @@
     getTournamentById,
     createTournament,
     updateTournament,
+    getTournamentParticipants,
     getCurrentUser: () => auth?.getCurrentUser() || null,
     getAvailableSlots,
     isTournamentJoined,
@@ -491,10 +495,59 @@
   function getMatches() { return [...matchCache.values()]; }
   function getMatchById(id) { return matchCache.get(id) || null; }
   function getMatchesByTournament(id) { return getMatches().filter((match) => match.tournamentId === id); }
-  function getMyMatches() { return []; }
+  function getMyMatches(userId = currentUserId()) {
+    return userId === currentUserId() ? [...myMatchCache.values()] : [];
+  }
   function getAdminMatches() { return getMatches(); }
   function getAdminMatchById(id) { return getMatchById(id); }
-  function getMatchParticipants() { return { registrations: [], players: [], teams: [] }; }
+  async function loadMyMatches() {
+    if (!currentUserId()) {
+      myMatchCache.clear();
+      myMatchesAvailable = true;
+      return [];
+    }
+    try {
+      const response = await api.request('/api/matches/mine');
+      if (!Array.isArray(response.matches)) throw new Error('The backend returned an invalid personal match list.');
+      myMatchCache.clear();
+      response.matches.forEach((match) => {
+        const normalized = cacheMatch(match);
+        myMatchCache.set(normalized.matchId, normalized);
+      });
+      myMatchesAvailable = true;
+      return getMyMatches();
+    } catch (error) {
+      myMatchCache.clear();
+      myMatchesAvailable = false;
+      return { error };
+    }
+  }
+  async function getMatchParticipants(id) {
+    try {
+      const response = await api.request(`/api/matches/${encodeURIComponent(id)}/participants`);
+      if (!Array.isArray(response.participants)) throw new Error('The backend returned an invalid match participant list.');
+      return { success: true, participants: response.participants };
+    } catch (error) {
+      return { success: false, reason: error.code, message: error.message };
+    }
+  }
+  async function getTournamentParticipants(id) {
+    try {
+      const response = await api.request(`/api/tournaments/${encodeURIComponent(id)}/registrations`);
+      if (!Array.isArray(response.registrations)) throw new Error('The backend returned an invalid tournament registration list.');
+      return { success: true, registrations: response.registrations };
+    } catch (error) {
+      return { success: false, reason: error.code, message: error.message };
+    }
+  }
+  async function notifyMatchPlayers(id) {
+    try {
+      const response = await api.request(`/api/matches/${encodeURIComponent(id)}/notify-room`, { method: 'POST', body: {} });
+      return { success: true, notified: Number(response.notified) || 0 };
+    } catch (error) {
+      return { success: false, reason: error.code, message: error.message };
+    }
+  }
   function isOrganizer() { return Boolean(auth?.isAdmin?.()); }
 
   async function createMatch(details) {
@@ -555,16 +608,27 @@
   }
 
   async function submitMatchResult(id, result) {
-    const body = {
-      status: result.status === 'submitted' ? 'submitted' : 'published',
-      placement: Number(result.placement),
-      points: Number(result.points),
-      kills: Number(result.kills),
-      ...(result.playerId ? { playerId: result.playerId } : {}),
-      ...(result.teamId ? { teamId: result.teamId } : {}),
-      ...(result.winnerName ? { winnerName: String(result.winnerName).trim() } : {}),
-      ...(result.remarks ? { remarks: String(result.remarks).trim() } : {})
-    };
+    const body = { status: result.status === 'submitted' ? 'submitted' : 'published' };
+    if (Array.isArray(result.entries)) {
+      body.entries = result.entries.map((entry) => ({
+        ...(entry.playerId ? { playerId: entry.playerId } : {}),
+        ...(entry.teamId ? { teamId: entry.teamId } : {}),
+        placement: Number(entry.placement),
+        points: Number(entry.points),
+        kills: Number(entry.kills),
+        ...(entry.remarks ? { remarks: String(entry.remarks).trim() } : {})
+      }));
+    } else {
+      Object.assign(body, {
+        placement: Number(result.placement),
+        points: Number(result.points),
+        kills: Number(result.kills),
+        ...(result.playerId ? { playerId: result.playerId } : {}),
+        ...(result.teamId ? { teamId: result.teamId } : {}),
+        ...(result.winnerName ? { winnerName: String(result.winnerName).trim() } : {}),
+        ...(result.remarks ? { remarks: String(result.remarks).trim() } : {})
+      });
+    }
     try {
       const response = await api.request(`/api/matches/${encodeURIComponent(id)}/result`, { method: 'POST', body });
       return { success: true, match: cacheMatch(response.match) };
@@ -592,8 +656,10 @@
     getMatchById,
     getMatchesByTournament,
     getMyMatches,
-    getMyMatchesAvailable: () => false,
+    getMyMatchesAvailable: () => myMatchesAvailable,
+    loadMyMatches,
     getMatchParticipants,
+    notifyMatchPlayers,
     getAdminMatches,
     getAdminMatchById,
     getRoomCredentials,
@@ -605,7 +671,10 @@
 
   tournaments.ready = loadTournaments();
   teams.ready = Promise.resolve(auth?.ready).then(loadUserTeam);
-  matches.ready = loadMatches();
+  matches.ready = Promise.all([loadMatches(), Promise.resolve(auth?.ready)]).then(async () => {
+    await loadMyMatches();
+    return getMatches();
+  });
   Object.freeze(tournaments);
   Object.freeze(teams);
   Object.freeze(matches);

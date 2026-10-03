@@ -131,8 +131,7 @@ export interface EncryptedRoomPatch {
   readonly roomPassword?: Buffer | null;
 }
 
-export interface MatchResultInput {
-  readonly status: 'submitted' | 'published';
+export interface MatchResultEntryInput {
   readonly playerId?: string;
   readonly teamId?: string;
   readonly winnerName?: string;
@@ -142,7 +141,14 @@ export interface MatchResultInput {
   readonly remarks?: string;
 }
 
+export interface MatchResultInput extends Partial<MatchResultEntryInput> {
+  readonly status: 'submitted' | 'published';
+  readonly entries?: readonly MatchResultEntryInput[];
+}
+
 export interface MatchResultView {
+  readonly playerId?: string | null;
+  readonly teamId?: string | null;
   readonly winnerName: string;
   readonly placement: number;
   readonly points: number;
@@ -166,6 +172,7 @@ export interface MatchView {
   readonly roomVisible?: boolean;
   readonly participantCount: number;
   readonly result?: MatchResultView;
+  readonly results?: readonly MatchResultView[];
   readonly createdAt: string;
   readonly updatedAt: string;
 }
@@ -173,6 +180,23 @@ export interface MatchView {
 export interface RoomCredentials {
   readonly roomId: string;
   readonly roomPassword: string;
+}
+
+export interface RegisteredParticipantView {
+  readonly registrationId: string;
+  readonly teamId: string | null;
+  readonly teamName: string | null;
+  readonly players: readonly { readonly userId: string; readonly username: string }[];
+}
+
+export interface UserNotificationView {
+  readonly id: string;
+  readonly type: string;
+  readonly title: string;
+  readonly message: string;
+  readonly relatedId: string | null;
+  readonly createdAt: string;
+  readonly read: boolean;
 }
 
 export interface CompetitionRepository {
@@ -190,7 +214,13 @@ export interface CompetitionRepository {
   createInvitation(id: string, actorId: string, receiverId: string, isAdmin: boolean): Promise<InvitationView>;
   respondToInvitation(id: string, actorId: string, status: 'accepted' | 'declined'): Promise<InvitationView | null>;
   listMatches(includePrivate: boolean): Promise<readonly MatchView[]>;
-  getMatch(id: string, includePrivate: boolean): Promise<MatchView | null>;
+  getMatch(id: string, includePrivate: boolean, userId?: string): Promise<MatchView | null>;
+  listMyMatches(userId: string): Promise<readonly MatchView[]>;
+  listTournamentParticipants(tournamentId: string): Promise<readonly RegisteredParticipantView[] | null>;
+  listMatchParticipants(matchId: string): Promise<readonly RegisteredParticipantView[] | null>;
+  publishMatchNotifications(matchId: string): Promise<number | null>;
+  listNotifications(userId: string): Promise<readonly UserNotificationView[]>;
+  markNotificationRead(userId: string, notificationId: string): Promise<boolean>;
   createMatch(ownerId: string, input: MatchInput, roomId: Buffer | null, roomPassword: Buffer | null): Promise<MatchView>;
   updateMatch(id: string, input: MatchPatch, credentials: EncryptedRoomPatch): Promise<MatchView | null>;
   setMatchResult(id: string, submittedByUserId: string, input: MatchResultInput): Promise<MatchView | null>;

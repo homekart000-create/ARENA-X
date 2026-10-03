@@ -6,6 +6,7 @@ import type {
   MatchPatch,
   MatchResultInput,
   MatchView,
+  RegisteredParticipantView,
   RegistrationView,
   RoomCredentials,
   TeamInput,
@@ -13,7 +14,8 @@ import type {
   TeamView,
   TournamentInput,
   TournamentPatch,
-  TournamentView
+  TournamentView,
+  UserNotificationView
 } from './contracts.js';
 
 function unavailable(): never {
@@ -35,7 +37,13 @@ export class UnavailableCompetitionRepository implements CompetitionRepository {
   async createInvitation(_id: string, _actorId: string, _receiverId: string, _isAdmin: boolean): Promise<InvitationView> { return unavailable(); }
   async respondToInvitation(_id: string, _actorId: string, _status: 'accepted' | 'declined'): Promise<InvitationView | null> { return unavailable(); }
   async listMatches(_includePrivate: boolean): Promise<readonly MatchView[]> { return unavailable(); }
-  async getMatch(_id: string, _includePrivate: boolean): Promise<MatchView | null> { return unavailable(); }
+  async getMatch(_id: string, _includePrivate: boolean, _userId?: string): Promise<MatchView | null> { return unavailable(); }
+  async listMyMatches(_userId: string): Promise<readonly MatchView[]> { return unavailable(); }
+  async listTournamentParticipants(_tournamentId: string): Promise<readonly RegisteredParticipantView[] | null> { return unavailable(); }
+  async listMatchParticipants(_matchId: string): Promise<readonly RegisteredParticipantView[] | null> { return unavailable(); }
+  async publishMatchNotifications(_matchId: string): Promise<number | null> { return unavailable(); }
+  async listNotifications(_userId: string): Promise<readonly UserNotificationView[]> { return unavailable(); }
+  async markNotificationRead(_userId: string, _notificationId: string): Promise<boolean> { return unavailable(); }
   async createMatch(_ownerId: string, _input: MatchInput, _roomId: Buffer | null, _roomPassword: Buffer | null): Promise<MatchView> { return unavailable(); }
   async updateMatch(_id: string, _input: MatchPatch, _credentials: EncryptedRoomPatch): Promise<MatchView | null> { return unavailable(); }
   async setMatchResult(_id: string, _submittedByUserId: string, _input: MatchResultInput): Promise<MatchView | null> { return unavailable(); }

@@ -1,10 +1,13 @@
 (() => {
   const STORAGE_KEY = 'arenaX_notifications';
   const auth = globalThis.ArenaAuth;
+  const apiClient = globalThis.ArenaApi;
   const tournaments = globalThis.ArenaTournaments;
   const teams = globalThis.ArenaTeams;
   const matches = globalThis.ArenaMatches;
   if (!auth) return;
+  let backendNotifications = [];
+  let backendNotificationError = null;
 
   function readState() {
     try {
@@ -43,8 +46,30 @@
 
   function getNotifications(userId = auth.getCurrentUser()?.userId) {
     if (!canAccess(userId)) return [];
-    return readState().items.filter((item) => isValidNotification(item) && item.userId === userId)
+    return [...readState().items.filter((item) => isValidNotification(item) && item.userId === userId), ...backendNotifications.filter((item) => item.userId === userId)]
       .sort((first, second) => new Date(second.createdAt) - new Date(first.createdAt));
+  }
+
+  async function loadBackendNotifications(userId = auth.getCurrentUser()?.userId) {
+    if (!apiClient || !canAccess(userId)) return [];
+    try {
+      const response = await apiClient.request('/api/notifications');
+      if (!Array.isArray(response.notifications)) throw new Error('The backend returned an invalid notification list.');
+      backendNotifications = response.notifications.map((item) => {
+        if (!item || typeof item.id !== 'string' || typeof item.type !== 'string'
+          || typeof item.title !== 'string' || typeof item.message !== 'string'
+          || typeof item.createdAt !== 'string' || !Number.isFinite(Date.parse(item.createdAt))) {
+          throw new Error('The backend returned an invalid notification record.');
+        }
+        return { ...item, userId, source: 'backend' };
+      });
+      backendNotificationError = null;
+      return backendNotifications;
+    } catch (error) {
+      backendNotifications = [];
+      backendNotificationError = error;
+      return [];
+    }
   }
 
   function getUnreadCount(userId = auth.getCurrentUser()?.userId) {
@@ -137,6 +162,7 @@
 
   function markRead(notificationId, userId = auth.getCurrentUser()?.userId) {
     if (!canAccess(userId)) return false;
+    if (backendNotifications.some((item) => item.id === notificationId && item.userId === userId)) return false;
     const state = readState();
     if (!state.writable) return false;
     let changed = false;
@@ -161,6 +187,27 @@
     return changed ? saveItems(items) : true;
   }
 
+  async function markBackendRead(notificationId, userId = auth.getCurrentUser()?.userId) {
+    if (!canAccess(userId) || !apiClient) return false;
+    const notification = backendNotifications.find((item) => item.id === notificationId && item.userId === userId);
+    if (!notification || notification.read) return false;
+    try {
+      await apiClient.request(`/api/notifications/${encodeURIComponent(notificationId)}/read`, { method: 'PATCH', body: {} });
+      backendNotifications = backendNotifications.map((item) => item.id === notificationId ? { ...item, read: true } : item);
+      return true;
+    } catch (error) {
+      backendNotificationError = error;
+      return false;
+    }
+  }
+
+  async function markAllBackendRead(userId = auth.getCurrentUser()?.userId) {
+    if (!canAccess(userId)) return false;
+    const pending = backendNotifications.filter((item) => item.userId === userId && !item.read);
+    const results = await Promise.all(pending.map((item) => markBackendRead(item.id, userId)));
+    return results.every(Boolean);
+  }
+
   function deleteNotification(notificationId, userId = auth.getCurrentUser()?.userId) {
     if (!canAccess(userId)) return false;
     const state = readState();
@@ -169,7 +216,7 @@
     return items.length !== state.items.length && saveItems(items);
   }
 
-  const api = Object.freeze({ getNotifications, getUnreadCount, syncFromData, markRead, markAllRead, deleteNotification });
+  const api = Object.freeze({ getNotifications, getUnreadCount, syncFromData, loadBackendNotifications, markRead, markBackendRead, markAllRead, markAllBackendRead, deleteNotification });
   globalThis.ArenaNotifications = api;
 
   let currentUser = auth.getCurrentUser();
@@ -191,7 +238,7 @@
 
   function notificationMarkup(notification) {
     const href = notificationHref(notification);
-    return `<article class="notification-item ${notification.read ? 'is-read' : 'is-unread'}" data-notification-id="${escapeHtml(notification.id)}"><div class="notification-item-main"><span class="notification-type">${escapeHtml(notification.type.replaceAll('_', ' ').toUpperCase())}</span><h2>${escapeHtml(notification.title)}</h2><p>${escapeHtml(notification.message)}</p><time datetime="${escapeHtml(notification.createdAt)}">${escapeHtml(dateLabel(notification.createdAt))}</time></div><div class="notification-item-actions"><a class="button button-card" href="${href}">Open <span aria-hidden="true">↗</span></a>${notification.read ? '<span class="notification-read-label">READ</span>' : '<button class="button button-outline" type="button" data-notification-read>Mark read</button>'}<button class="notification-delete" type="button" aria-label="Delete notification" data-notification-delete>×</button></div></article>`;
+    return `<article class="notification-item ${notification.read ? 'is-read' : 'is-unread'}" data-notification-id="${escapeHtml(notification.id)}"><div class="notification-item-main"><span class="notification-type">${escapeHtml(notification.type.replaceAll('_', ' ').toUpperCase())}</span><h2>${escapeHtml(notification.title)}</h2><p>${escapeHtml(notification.message)}</p><time datetime="${escapeHtml(notification.createdAt)}">${escapeHtml(dateLabel(notification.createdAt))}</time></div><div class="notification-item-actions"><a class="button button-card" href="${href}">Open <span aria-hidden="true">↗</span></a>${notification.read ? '<span class="notification-read-label">READ</span>' : '<button class="button button-outline" type="button" data-notification-read>Mark read</button>'}${notification.source === 'backend' ? '' : '<button class="notification-delete" type="button" aria-label="Delete notification" data-notification-delete>×</button>'}</div></article>`;
   }
 
   function renderNotifications(container, items, emptyText) {
@@ -208,6 +255,11 @@
     const filter = document.querySelector('[data-notification-filter].is-active')?.dataset.notificationFilter || 'all';
     const visible = filter === 'unread' ? notifications.filter((item) => !item.read) : notifications;
     renderNotifications(list, visible, filter === 'unread' ? 'No unread notifications.' : 'No notifications.');
+    const errorTarget = document.querySelector('#notifications-error');
+    if (errorTarget) {
+      errorTarget.hidden = !backendNotificationError;
+      errorTarget.textContent = backendNotificationError ? 'Some server notifications could not be loaded. Refresh when the service is available.' : '';
+    }
     document.querySelector('#notifications-count').textContent = `${notifications.length} TOTAL`;
     document.querySelector('#notifications-mark-all').disabled = notifications.every((item) => item.read);
     refreshNavigationCount();
@@ -226,7 +278,15 @@
     }
     const item = event.target.closest('[data-notification-id]');
     if (item && event.target.closest('[data-notification-read]')) {
-      markRead(item.dataset.notificationId, currentUser.userId);
+      const notificationId = item.dataset.notificationId;
+      if (backendNotifications.some((notification) => notification.id === notificationId)) {
+        markBackendRead(notificationId, currentUser.userId).then((success) => {
+          if (!success) backendNotificationError = new Error('The notification could not be marked read.');
+          renderPage();
+        });
+      } else {
+        markRead(notificationId, currentUser.userId);
+      }
       renderPage();
     }
     if (item && event.target.closest('[data-notification-delete]')) {
@@ -235,13 +295,19 @@
     }
     if (event.target.closest('#notifications-mark-all')) {
       markAllRead(currentUser.userId);
+      markAllBackendRead(currentUser.userId).then((success) => {
+        if (!success) backendNotificationError = new Error('Some server notifications could not be marked read.');
+        renderPage();
+      });
       renderPage();
     }
   });
 
-  function initializeUserNotifications() {
+  async function initializeUserNotifications() {
+    await Promise.all([matches?.ready, tournaments?.ready, teams?.ready]);
     currentUser = auth.getCurrentUser();
     if (!currentUser) return;
+    await loadBackendNotifications(currentUser.userId);
     if (document.querySelector('#profile-content') || document.body.dataset.page === 'notifications') syncFromData(currentUser.userId);
     refreshNavigationCount();
     const profilePreview = document.querySelector('#profile-notifications-preview');

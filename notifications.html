@@ -13,6 +13,7 @@
   <link rel="stylesheet" href="css/style.css">
   <script src="js/api.js" defer></script>
   <script src="js/auth.js" defer></script>
+  <script src="js/competition-api.js" defer></script>
   <script src="js/tournaments.js" defer></script>
   <script src="js/teams.js" defer></script>
   <script src="js/matches.js" defer></script>
@@ -37,6 +38,7 @@
       <span class="notification-total" id="notifications-count">0 TOTAL</span>
       <button class="button button-outline" type="button" id="notifications-mark-all">Mark all as read</button>
     </section>
+    <p class="admin-message is-error" id="notifications-error" role="alert" hidden></p>
     <div class="notifications-list" id="notifications-list" aria-live="polite"></div>
     <section class="tournament-empty-state notifications-empty" data-notifications-empty hidden><span class="empty-mark">AX</span><h2>Your inbox is clear.</h2><p>No notifications.</p></section>
   </main>
