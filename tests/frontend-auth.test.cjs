@@ -283,6 +283,50 @@ test('logout revokes via the backend and clears only in-memory session state', a
   assert.equal(calls.at(-1).options.method, 'POST');
 });
 
+test('account closure calls the authenticated self endpoint and removes only the current user cache', async () => {
+  const userCache = [
+    { userId: 'user-123', username: 'arena_player', email: 'player@example.test' },
+    { userId: 'other-user', username: 'other_player', email: 'other@example.test' }
+  ];
+  const notifications = [
+    { id: 'own-notice', userId: 'user-123', message: 'private' },
+    { id: 'other-notice', userId: 'other-user', message: 'keep' }
+  ];
+  const { auth, calls, values } = createAuthHarness(async (url, options) => {
+    if (url === '/api/auth/me') return { user: publicUser() };
+    if (url === '/api/users/me/close') {
+      assert.equal(options.method, 'POST');
+      return { success: true };
+    }
+    throw new Error(`Unexpected request ${url}`);
+  }, {
+    'arena-x-users-v1': JSON.stringify(userCache),
+    arenaX_notifications: JSON.stringify(notifications)
+  });
+  await auth.ready;
+  const result = await auth.deleteCurrentAccount();
+
+  assert.equal(result.success, true);
+  assert.equal(result.localDataCleared, true);
+  assert.equal(auth.isLoggedIn(), false);
+  assert.equal(calls.at(-1).url, '/api/users/me/close');
+  assert.deepEqual(JSON.parse(values.get('arena-x-users-v1')).map((user) => user.userId), ['other-user']);
+  assert.deepEqual(JSON.parse(values.get('arenaX_notifications')).map((notification) => notification.userId), ['other-user']);
+});
+
+test('account closure reports backend failure without clearing the current session', async () => {
+  const { auth } = createAuthHarness(async (url) => {
+    if (url === '/api/auth/me') return { user: publicUser() };
+    throw Object.assign(new Error('Unavailable'), { code: 'BACKEND_UNAVAILABLE' });
+  });
+  await auth.ready;
+  const result = await auth.deleteCurrentAccount();
+
+  assert.equal(result.success, false);
+  assert.equal(auth.isLoggedIn(), true);
+  assert.match(result.message, /unavailable/i);
+});
+
 test('backend admin role controls admin access and legacy auth secrets are removed', async () => {
   const existingUsers = [{
     userId: 'legacy-user', username: 'old', password: 'old-password', password_hash: 'old-hash',
@@ -372,4 +416,8 @@ test('static HTML script references resolve and PWA registration remains present
   }
   assert.match(fs.readFileSync(path.join(root, 'js/pwa.js'), 'utf8'), /serviceWorker\.register/);
   assert.match(fs.readFileSync(path.join(root, 'service-worker.js'), 'utf8'), /addEventListener\('fetch'/);
+  const profile = fs.readFileSync(path.join(root, 'profile.html'), 'utf8');
+  assert.match(profile, /id="delete-account"/);
+  assert.match(profile, /id="delete-account-status"/);
+  assert.match(profile, /Any wallet balance, payment, withdrawal, tournament, match, and audit history is retained/);
 });

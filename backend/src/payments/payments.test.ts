@@ -51,6 +51,7 @@ class TestAuthRepository implements AuthRepository {
       tokenHash.length === session.hash.length && timingSafeEqual(tokenHash, session.hash))?.user ?? null;
   }
   async revokeSession(_tokenHash: Buffer): Promise<void> {}
+  async closeOwnAccount(_userId: string): Promise<boolean> { return false; }
 }
 
 class MemoryPaymentRepository implements PaymentRepository {

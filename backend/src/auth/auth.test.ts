@@ -2,9 +2,11 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test, { type TestContext } from 'node:test';
 import type { FastifyInstance } from 'fastify';
+import type { Pool, PoolClient } from 'pg';
 import type { AppConfig } from '../config/env.js';
 import { parseEnvironment } from '../config/env.js';
 import { buildApp } from '../app.js';
+import { PostgresAuthRepository } from './postgres-repository.js';
 import { createRequireAuth, requireAdmin } from './middleware.js';
 import type {
   AuthRepository,
@@ -25,6 +27,14 @@ const validAccount = {
 class MemoryAuthRepository implements AuthRepository {
   private readonly users = new Map<string, StoredCredentials>();
   private readonly sessions = new Map<string, { userId: string; expiresAt: Date; revoked: boolean }>();
+  private readonly linkedData = new Map<string, {
+    walletBalanceMinor: number;
+    walletTransactions: readonly string[];
+    ledgerEntries: readonly string[];
+    tournamentRecords: readonly string[];
+    auditEvents: readonly string[];
+    kycProfile: { legalName: string | null; dateOfBirth: string | null; verificationReference: string | null };
+  }>();
 
   async createUser(input: NewUserInput): Promise<AuthUser> {
     const existing = [...this.users.values()].some(({ user }) =>
@@ -43,6 +53,14 @@ class MemoryAuthRepository implements AuthRepository {
       createdAt: new Date().toISOString()
     };
     this.users.set(user.userId, { user, passwordHash: input.passwordHash });
+    this.linkedData.set(user.userId, {
+      walletBalanceMinor: 1250,
+      walletTransactions: ['wallet-transaction'],
+      ledgerEntries: ['ledger-entry'],
+      tournamentRecords: ['registration', 'match-result'],
+      auditEvents: ['kyc-audit', 'withdrawal-event'],
+      kycProfile: { legalName: 'Test Legal Name', dateOfBirth: '1990-01-01', verificationReference: 'kyc-reference' }
+    });
     return user;
   }
 
@@ -67,6 +85,33 @@ class MemoryAuthRepository implements AuthRepository {
     if (session) session.revoked = true;
   }
 
+  async closeOwnAccount(userId: string): Promise<boolean> {
+    const record = this.users.get(userId);
+    if (!record || record.user.status !== 'active') return false;
+
+    for (const session of this.sessions.values()) {
+      if (session.userId === userId) session.revoked = true;
+    }
+
+    const closedUser: AuthUser = {
+      ...record.user,
+      fullName: 'Deleted player',
+      username: `deleted_${userId.replaceAll('-', '').slice(0, 12)}`,
+      email: `deleted+${userId}@deleted.invalid`,
+      avatar: null,
+      status: 'closed'
+    };
+    this.users.set(userId, { user: closedUser, passwordHash: '' });
+    const data = this.linkedData.get(userId);
+    if (data) {
+      this.linkedData.set(userId, {
+        ...data,
+        kycProfile: { legalName: null, dateOfBirth: null, verificationReference: null }
+      });
+    }
+    return true;
+  }
+
   setStatus(identifier: string, status: string): void {
     const record = [...this.users.entries()].find(([, credentials]) =>
       credentials.user.email === identifier || credentials.user.username === identifier
@@ -78,6 +123,18 @@ class MemoryAuthRepository implements AuthRepository {
 
   storedCredentials(identifier: string): StoredCredentials | undefined {
     return [...this.users.values()].find(({ user }) => user.email === identifier || user.username === identifier);
+  }
+
+  userById(userId: string): AuthUser | undefined {
+    return this.users.get(userId)?.user;
+  }
+
+  linkedDataFor(userId: string) {
+    return this.linkedData.get(userId);
+  }
+
+  activeSessionCount(userId: string): number {
+    return [...this.sessions.values()].filter((session) => session.userId === userId && !session.revoked).length;
   }
 
   get size(): number {
@@ -243,6 +300,196 @@ test('logout revokes the server session and clears its cookie', async (context) 
   assert.equal(logout.json().success, true);
   const me = await app.inject({ method: 'GET', url: '/api/auth/me', headers: { cookie: sessionCookie(registration) } });
   assert.equal(me.statusCode, 401);
+});
+
+test('authenticated user can close their own account', async (context) => {
+  const { app, repository } = await createTestServer(context);
+  const registration = await register(app);
+  const userId = registration.json().user.userId as string;
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/users/me/close',
+    headers: { cookie: sessionCookie(registration), origin: 'http://localhost:5500' }
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().success, true);
+  assert.match(String(response.headers['set-cookie']), /Max-Age=0/i);
+  assert.equal(repository.userById(userId)?.status, 'closed');
+});
+
+test('rejects unauthenticated account closure', async (context) => {
+  const { app, repository } = await createTestServer(context);
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/users/me/close',
+    headers: { origin: 'http://localhost:5500' }
+  });
+
+  assert.equal(response.statusCode, 401);
+  assert.equal(repository.size, 0);
+});
+
+test('rejects account closure from an unapproved or missing origin', async (context) => {
+  const { app, repository } = await createTestServer(context);
+  const registration = await register(app);
+  const cookie = sessionCookie(registration);
+
+  const unapproved = await app.inject({
+    method: 'POST',
+    url: '/api/users/me/close',
+    headers: { cookie, origin: 'https://unapproved.example' }
+  });
+  const missing = await app.inject({ method: 'POST', url: '/api/users/me/close', headers: { cookie } });
+
+  assert.equal(unapproved.statusCode, 403);
+  assert.equal(missing.statusCode, 403);
+  assert.equal(repository.userById(registration.json().user.userId)?.status, 'active');
+});
+
+test('account closure uses the existing cross-origin POST method policy', async (context) => {
+  const { app } = await createTestServer(context);
+  const response = await app.inject({
+    method: 'OPTIONS',
+    url: '/api/users/me/close',
+    headers: {
+      origin: 'http://localhost:5500',
+      'access-control-request-method': 'POST'
+    }
+  });
+
+  assert.equal(response.statusCode, 204);
+  assert.match(response.headers['access-control-allow-methods'] ?? '', /POST/);
+  assert.doesNotMatch(response.headers['access-control-allow-methods'] ?? '', /DELETE/);
+});
+
+test('account closure only targets the authenticated user', async (context) => {
+  const { app, repository } = await createTestServer(context);
+  const owner = await register(app);
+  const other = await register(app, { ...validAccount, username: 'other_player', email: 'other@example.test' });
+  const otherUserId = other.json().user.userId as string;
+
+  const otherPath = await app.inject({
+    method: 'POST',
+    url: `/api/users/${otherUserId}`,
+    headers: { cookie: sessionCookie(owner), origin: 'http://localhost:5500' }
+  });
+  assert.equal(otherPath.statusCode, 404);
+  assert.equal(repository.userById(otherUserId)?.status, 'active');
+
+  const selfRequestWithForeignId = await app.inject({
+    method: 'POST',
+    url: '/api/users/me/close',
+    headers: { cookie: sessionCookie(owner), origin: 'http://localhost:5500' },
+    payload: { userId: otherUserId }
+  });
+  assert.equal(selfRequestWithForeignId.statusCode, 200);
+  assert.equal(repository.userById(owner.json().user.userId)?.status, 'closed');
+  assert.equal(repository.userById(otherUserId)?.status, 'active');
+});
+
+test('account closure invalidates every active session', async (context) => {
+  const { app, repository } = await createTestServer(context);
+  const registration = await register(app);
+  const userId = registration.json().user.userId as string;
+  const login = await app.inject({
+    method: 'POST',
+    url: '/api/auth/login',
+    headers: { origin: 'http://localhost:5500' },
+    payload: { identifier: validAccount.email, password: validAccount.password }
+  });
+  const nextCookie = sessionCookie(login);
+  assert.equal(repository.activeSessionCount(userId), 2);
+
+  const close = await app.inject({
+    method: 'POST',
+    url: '/api/users/me/close',
+    headers: { cookie: nextCookie, origin: 'http://localhost:5500' }
+  });
+  assert.equal(close.statusCode, 200);
+  assert.equal(repository.activeSessionCount(userId), 0);
+  assert.equal((await app.inject({ method: 'GET', url: '/api/auth/me', headers: { cookie: sessionCookie(registration) } })).statusCode, 401);
+  assert.equal((await app.inject({ method: 'GET', url: '/api/auth/me', headers: { cookie: nextCookie } })).statusCode, 401);
+});
+
+test('account closure preserves wallet balances, transaction history, and ledger entries', async (context) => {
+  const { app, repository } = await createTestServer(context);
+  const registration = await register(app);
+  const userId = registration.json().user.userId as string;
+  const before = structuredClone(repository.linkedDataFor(userId));
+
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/users/me/close',
+    headers: { cookie: sessionCookie(registration), origin: 'http://localhost:5500' }
+  });
+
+  assert.equal(response.statusCode, 200);
+  const after = repository.linkedDataFor(userId);
+  assert.equal(after?.walletBalanceMinor, before?.walletBalanceMinor);
+  assert.deepEqual(after?.walletTransactions, before?.walletTransactions);
+  assert.deepEqual(after?.ledgerEntries, before?.ledgerEntries);
+});
+
+test('account closure anonymizes profile data while preserving competition and audit history', async (context) => {
+  const { app, repository } = await createTestServer(context);
+  const registration = await register(app);
+  const userId = registration.json().user.userId as string;
+
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/users/me/close',
+    headers: { cookie: sessionCookie(registration), origin: 'http://localhost:5500' }
+  });
+
+  assert.equal(response.statusCode, 200);
+  const closed = repository.userById(userId);
+  assert.equal(closed?.fullName, 'Deleted player');
+  assert.equal(closed?.email, `deleted+${userId}@deleted.invalid`);
+  assert.equal(closed?.avatar, null);
+  assert.equal(repository.storedCredentials(validAccount.email), undefined);
+  const data = repository.linkedDataFor(userId);
+  assert.equal(data?.kycProfile.legalName, null);
+  assert.equal(data?.kycProfile.dateOfBirth, null);
+  assert.equal(data?.kycProfile.verificationReference, null);
+  assert.deepEqual(data?.tournamentRecords, ['registration', 'match-result']);
+  assert.deepEqual(data?.auditEvents, ['kyc-audit', 'withdrawal-event']);
+});
+
+test('Postgres account closure is atomic and does not mutate linked financial or competition records', async () => {
+  const userId = randomUUID();
+  const statements: string[] = [];
+  let released = false;
+  const client = {
+    async query(statement: string) {
+      statements.push(statement);
+      return statement.startsWith('SELECT id::text')
+        ? { rows: [{ id: userId }] }
+        : { rows: [] };
+    },
+    release() { released = true; }
+  } as unknown as PoolClient;
+  const pool = { async connect() { return client; } } as unknown as Pool;
+
+  const closed = await new PostgresAuthRepository(pool).closeOwnAccount(userId);
+
+  assert.equal(closed, true);
+  assert.equal(released, true);
+  assert.equal(statements[0], 'BEGIN');
+  assert.equal(statements.at(-1), 'COMMIT');
+  assert.ok(statements.some((statement) => statement.includes('UPDATE auth_sessions')));
+  assert.ok(statements.some((statement) => statement.includes('DELETE FROM user_credentials')));
+  assert.ok(statements.some((statement) => statement.includes('UPDATE user_role_assignments')));
+  assert.ok(statements.some((statement) => statement.includes('UPDATE kyc_profiles')));
+  assert.ok(statements.some((statement) => statement.includes('UPDATE users')));
+  const userUpdate = statements.find((statement) => statement.includes('UPDATE users'));
+  assert.match(userUpdate ?? '', /phone = NULL/);
+  assert.match(userUpdate ?? '', /date_of_birth = NULL/);
+  assert.match(userUpdate ?? '', /avatar = NULL/);
+  assert.match(userUpdate ?? '', /status = 'closed'/);
+  assert.ok(statements.every((statement) =>
+    !/\b(wallets|wallet_transactions|wallet_ledger_entries|payments|withdrawal_requests|tournaments|matches|kyc_audit_events)\b/i.test(statement)
+  ));
 });
 
 test('returns the authenticated profile from /api/users/me', async (context) => {

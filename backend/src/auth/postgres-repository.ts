@@ -156,6 +156,73 @@ export class PostgresAuthRepository implements AuthRepository {
       throw new DatabaseUnavailableError();
     }
   }
+
+  async closeOwnAccount(userId: string): Promise<boolean> {
+    let client: PoolClient | undefined;
+    try {
+      client = await this.pool.connect();
+      await client.query('BEGIN');
+
+      const account = await client.query<{ readonly id: string }>(
+        `SELECT id::text AS id FROM users WHERE id = $1 AND status = 'active' FOR UPDATE`,
+        [userId]
+      );
+      if (!account.rows[0]) {
+        await client.query('ROLLBACK');
+        return false;
+      }
+
+      await client.query(
+        `UPDATE auth_sessions SET revoked_at = COALESCE(revoked_at, now()), updated_at = now()
+         WHERE user_id = $1`,
+        [userId]
+      );
+      await client.query(`DELETE FROM user_credentials WHERE user_id = $1`, [userId]);
+      await client.query(
+        `UPDATE user_role_assignments SET revoked_at = COALESCE(revoked_at, now())
+         WHERE user_id = $1 AND revoked_at IS NULL`,
+        [userId]
+      );
+      await client.query(
+        `UPDATE kyc_profiles
+         SET legal_name = NULL,
+             country = NULL,
+             date_of_birth = NULL,
+             verification_reference = NULL,
+             rejection_reason = NULL,
+             updated_at = now()
+         WHERE user_id = $1`,
+        [userId]
+      );
+      await client.query(
+        `UPDATE users
+         SET full_name = 'Deleted player',
+             username = 'd' || left(md5(id::text), 19),
+             email_normalized = 'deleted+' || id::text || '@deleted.invalid',
+             phone = NULL,
+             date_of_birth = NULL,
+             avatar = NULL,
+             status = 'closed',
+             updated_at = now()
+         WHERE id = $1 AND status = 'active'`,
+        [userId]
+      );
+
+      await client.query('COMMIT');
+      return true;
+    } catch {
+      if (client) {
+        try {
+          await client.query('ROLLBACK');
+        } catch {
+          // Preserve the original failure without leaking database details.
+        }
+      }
+      throw new DatabaseUnavailableError();
+    } finally {
+      client?.release();
+    }
+  }
 }
 
 export class UnavailableAuthRepository implements AuthRepository {
@@ -176,6 +243,10 @@ export class UnavailableAuthRepository implements AuthRepository {
   }
 
   async revokeSession(_tokenHash: Buffer): Promise<void> {
+    throw new DatabaseUnavailableError();
+  }
+
+  async closeOwnAccount(_userId: string): Promise<boolean> {
     throw new DatabaseUnavailableError();
   }
 }

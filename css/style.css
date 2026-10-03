@@ -491,6 +491,13 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--acid); outline-
 .profile-stats > div { padding-block: 19px; }
 .profile-stats strong { font: 700 29px var(--display); }
 .profile-main > .back-home { margin-top: 27px; }
+.account-deletion { margin-top: 28px; padding: 20px; border: 1px solid rgba(255, 114, 75, .35); background: rgba(255, 114, 75, .035); }
+.account-deletion h2 { margin: 0; font: 700 24px/.95 var(--display); text-transform: uppercase; }
+.account-deletion > div > p:not(.eyebrow):not(.account-deletion-status) { max-width: 720px; margin: 12px 0 16px; color: #a2a69a; font-size: 10px; line-height: 1.7; }
+.account-deletion-button { min-height: 37px; color: #ffd2c6; border-color: rgba(255, 114, 75, .55); background: transparent; }
+.account-deletion-button:hover:not(:disabled) { color: var(--ink); border-color: #ff724b; background: #ff724b; }
+.account-deletion-button:disabled { cursor: wait; opacity: .65; }
+.account-deletion-status { min-height: 1em; margin: 10px 0 0; color: #ffd2c6; font-size: 9px; line-height: 1.5; }
 @keyframes auth-spin { to { transform: rotate(360deg); } }
 @media (max-width: 900px) {
   .auth-layout { grid-template-columns: minmax(260px, .8fr) minmax(0, 1.2fr); }

@@ -78,6 +78,8 @@ class TestAuthRepository implements AuthRepository {
   async revokeSession(tokenHash: Buffer): Promise<void> {
     this.sessions.delete(tokenHash.toString('hex'));
   }
+
+  async closeOwnAccount(_userId: string): Promise<boolean> { return false; }
 }
 
 interface MemoryTeam extends TeamView {}

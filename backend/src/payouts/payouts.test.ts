@@ -228,6 +228,7 @@ class TestAuthRepository implements AuthRepository {
     return userId ? this.users.get(userId) ?? null : null;
   }
   async revokeSession(tokenHash: Buffer): Promise<void> { this.sessions.delete(tokenHash.toString('hex')); }
+  async closeOwnAccount(_userId: string): Promise<boolean> { return false; }
 }
 
 async function createRouteHarness(context: TestContext, repository: StatefulPayoutRepository, provider: PayoutProvider) {

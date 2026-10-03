@@ -98,7 +98,7 @@ export function buildApp(
   registerHealthRoute(app);
   app.register(async (routesApp) => {
     registerAuthRoutes(routesApp, { config, repository: authRepository, requireAuth });
-    registerUserRoutes(routesApp, { requireAuth });
+    registerUserRoutes(routesApp, { requireAuth, config, repository: authRepository });
     registerKycRoutes(routesApp, { repository: kycRepository, config, requireAuth, requireAdmin });
     registerCompetitionRoutes(routesApp, { config, repository: competitionRepository, requireAuth, optionalAuth });
     registerWalletRoutes(routesApp, {

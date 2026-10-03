@@ -75,7 +75,7 @@
     }
     if (status === 403) return new ApiError('FORBIDDEN', 'You are not allowed to perform this action.', status);
     if (status === 404) {
-      const message = path.startsWith('/api/auth/') || path === '/api/users/me'
+      const message = path.startsWith('/api/auth/') || path === '/api/users/me' || path === '/api/users/me/close'
         ? 'The authentication service endpoint is unavailable. Check the backend URL.'
         : 'The requested competition record was not found or is no longer available.';
       return new ApiError('NOT_FOUND', message, status);
@@ -83,6 +83,8 @@
     if (status === 409) {
       const message = path === '/api/auth/register'
         ? 'An account with those details already exists.'
+        : path === '/api/users/me/close'
+          ? 'Your account could not be closed. Refresh and try again.'
         : backendCode === 'INSUFFICIENT_FUNDS'
           ? 'Available wallet balance is insufficient.'
           : backendCode === 'IDEMPOTENCY_KEY_REUSED' || backendCode === 'DUPLICATE_TRANSACTION'

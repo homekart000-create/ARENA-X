@@ -357,6 +357,51 @@
     }
   }
 
+  function clearClosedAccountLocalData(userId) {
+    let cleared = true;
+    try {
+      const rawUsers = localStorage.getItem(USERS_KEY);
+      if (rawUsers !== null) {
+        const users = JSON.parse(rawUsers);
+        if (!Array.isArray(users)) cleared = false;
+        else localStorage.setItem(USERS_KEY, JSON.stringify(users.filter((user) => user?.userId !== userId)));
+      }
+    } catch {
+      cleared = false;
+    }
+    try {
+      const rawNotifications = localStorage.getItem(NOTIFICATIONS_KEY);
+      if (rawNotifications !== null) {
+        const notifications = JSON.parse(rawNotifications);
+        if (!Array.isArray(notifications)) cleared = false;
+        else localStorage.setItem(NOTIFICATIONS_KEY, JSON.stringify(
+          notifications.filter((notification) => notification?.userId !== userId)
+        ));
+      }
+    } catch {
+      cleared = false;
+    }
+    return cleared;
+  }
+
+  async function deleteCurrentAccount() {
+    if (!backendUser) return { success: false, message: 'Log in before closing your account.' };
+    const userId = backendUser.userId;
+    try {
+      await backendApi.request('/api/users/me/close', { method: 'POST' });
+    } catch (error) {
+      if (error?.code === 'UNAUTHORIZED') {
+        return { success: false, message: 'Your session is missing or expired. Log in and try again.' };
+      }
+      return { success: false, message: authFailure(error) };
+    }
+
+    backendUser = null;
+    sessionError = null;
+    sessionChecked = true;
+    return { success: true, localDataCleared: clearClosedAccountLocalData(userId) };
+  }
+
   function saveNotice(message, type = 'success') {
     try {
       localStorage.setItem(NOTICE_KEY, JSON.stringify({ message, type }));
@@ -824,6 +869,7 @@
     findUserByUsername,
     loginUser,
     logoutUser,
+    deleteCurrentAccount,
     registerUser,
     updateUser,
     requireLogin,
@@ -844,6 +890,46 @@
   setupAuthNavigation();
   setupSignupForm();
   setupLoginForm();
+  const deleteAccountButton = document.querySelector('#delete-account');
+  deleteAccountButton?.addEventListener('click', async () => {
+    if (deleteAccountButton.disabled) return;
+    const confirmed = window.confirm(
+      'Delete your ARENA X account? You will be signed out and cannot sign in again. Any wallet balance and payment, withdrawal, tournament, match, and audit history remains linked to a closed account.'
+    );
+    if (!confirmed) return;
+
+    const status = document.querySelector('#delete-account-status');
+    deleteAccountButton.disabled = true;
+    if (status) status.textContent = 'Closing your account...';
+    const result = await deleteCurrentAccount();
+    if (!result.success) {
+      if (status) status.textContent = result.message;
+      deleteAccountButton.disabled = false;
+      return;
+    }
+
+    const notice = result.localDataCleared
+      ? 'Your account is closed. Financial, competition, and audit history remains linked to a closed account.'
+      : 'Your account is closed, but some profile or notification data could not be cleared from this browser. Clear this site’s stored data.';
+    if (!result.localDataCleared) {
+      renderHeaderAccount();
+      document.querySelectorAll('[data-profile-field], [data-profile-stat]').forEach((element) => {
+        element.textContent = '';
+      });
+      const avatar = document.querySelector('[data-profile-avatar]');
+      if (avatar) avatar.textContent = '';
+      const content = document.querySelector('#profile-content');
+      content?.querySelectorAll(':scope > :not(.account-deletion)').forEach((element) => {
+        element.hidden = true;
+      });
+      if (status) status.textContent = notice;
+      else window.alert(notice);
+      return;
+    }
+
+    if (!saveNotice(notice, 'info')) window.alert(notice);
+    location.assign('index.html');
+  });
   ready.then(async () => {
     ensureTournamentNavigation();
     renderHeaderAccount();

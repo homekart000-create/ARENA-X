@@ -6,6 +6,7 @@ const test = require('node:test');
 
 const root = path.resolve(__dirname, '..');
 const builder = path.join(root, 'scripts', 'build-android-web.mjs');
+const android = path.join(root, 'android');
 
 function runBuilder(args, apiBaseUrl) {
   const env = { ...process.env };
@@ -32,6 +33,42 @@ test('release web build rejects localhost and non-HTTPS API origins', () => {
   const cleartext = runBuilder(['--release'], 'http://api.example.test');
   assert.notEqual(cleartext.status, 0);
   assert.match(cleartext.stderr, /must use HTTPS/);
+});
+
+test('release identity, signing, and network policy remain safe', () => {
+  const gradle = readFileSync(path.join(android, 'app', 'build.gradle'), 'utf8');
+  const mainManifest = readFileSync(path.join(android, 'app', 'src', 'main', 'AndroidManifest.xml'), 'utf8');
+  const debugManifest = readFileSync(path.join(android, 'app', 'src', 'debug', 'AndroidManifest.xml'), 'utf8');
+  const debugNetworkConfig = readFileSync(
+    path.join(android, 'app', 'src', 'debug', 'res', 'xml', 'network_security_config.xml'),
+    'utf8'
+  );
+  const appStrings = readFileSync(path.join(android, 'app', 'src', 'main', 'res', 'values', 'strings.xml'), 'utf8');
+
+  assert.match(gradle, /applicationId\s+"com\.arenax\.app"/);
+  assert.match(gradle, /versionCode\s+1\b/);
+  assert.match(gradle, /versionName\s+"1\.0\.0"/);
+  assert.match(appStrings, /<string name="app_name">ARENA X<\/string>/);
+  for (const name of [
+    'ANDROID_RELEASE_STORE_FILE',
+    'ANDROID_RELEASE_STORE_PASSWORD',
+    'ANDROID_RELEASE_KEY_ALIAS',
+    'ANDROID_RELEASE_KEY_PASSWORD'
+  ]) {
+    assert.ok(gradle.includes(name), `release signing must read ${name}`);
+  }
+  assert.match(gradle, /signingConfig signingConfigs\.release/);
+  assert.doesNotMatch(gradle, /signingConfig\s+signingConfigs\.debug/);
+
+  assert.match(mainManifest, /android:usesCleartextTraffic="false"/);
+  assert.match(debugManifest, /android:networkSecurityConfig="@xml\/network_security_config"/);
+  assert.match(debugManifest, /android:usesCleartextTraffic="true"/);
+  assert.match(debugNetworkConfig, /<base-config cleartextTrafficPermitted="false"\s*\/>/);
+  const cleartextHosts = [...debugNetworkConfig.matchAll(/<domain[^>]*>([^<]+)<\/domain>/g)]
+    .map((match) => match[1]);
+  assert.deepEqual(cleartextHosts, ['localhost', '127.0.0.1']);
+  assert.match(mainManifest, /<uses-permission android:name="android\.permission\.INTERNET"/);
+  assert.doesNotMatch(mainManifest, /<uses-permission android:name="android\.permission\.(?!INTERNET)[^"]+"/);
 });
 
 test('Android web stage contains only static app assets and the configured API origin', () => {

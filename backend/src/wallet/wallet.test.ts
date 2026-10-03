@@ -194,6 +194,7 @@ class WalletTestAuthRepository implements AuthRepository {
     return userId ? this.users.get(userId)?.user ?? null : null;
   }
   async revokeSession(tokenHash: Buffer): Promise<void> { this.sessions.delete(tokenHash.toString('hex')); }
+  async closeOwnAccount(_userId: string): Promise<boolean> { return false; }
 }
 
 interface WalletHarness {

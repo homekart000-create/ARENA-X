@@ -41,6 +41,7 @@ export interface AuthRepository {
   createSession(userId: string, tokenHash: Buffer, expiresAt: Date): Promise<void>;
   findSessionUser(tokenHash: Buffer): Promise<AuthUser | null>;
   revokeSession(tokenHash: Buffer): Promise<void>;
+  closeOwnAccount(userId: string): Promise<boolean>;
 }
 
 export class DuplicateAccountError extends Error {
