@@ -60,6 +60,18 @@ npm run migrate:down
 
 The migrations create `users`, `user_credentials`, `user_role_assignments`, `auth_sessions`, the tournament/team/match tables, and wallet/ledger tables. Password hashes and session-token hashes are stored separately from user profile fields. Migration execution was **NOT RUN** because no `DATABASE_URL` is configured.
 
+## Operator-only first-admin bootstrap
+
+Normal registration always creates a `user` role. To grant the existing `admin` role, an authorized database operator can run the backend CLI; there is intentionally no public API for granting roles. This command requires the exact email or username and an explicit confirmation flag:
+
+```powershell
+npm run admin:grant -- --confirm <exact-email-or-username>
+```
+
+Run it from `backend/` after dependencies are installed and migrations are current. Supply `DATABASE_URL` through the operator's approved secret manager or private shell environment; the CLI never prints it. For local work, `dotenv/config` loads the backend `.env`. Before using a production connection, independently verify the exact account identifier with the account owner. The command only grants an existing active account, locks the matched user in a transaction, rejects missing/ambiguous/inactive accounts, and is idempotent. It writes no credentials or session data and does not accept a client-supplied role. No production account is promoted by deployment or migration.
+
+The assignment's existing `assigned_at` records when the current grant was made. The existing KYC/withdrawal audit tables are domain-specific and are not used for role grants; the command does not write to those records.
+
 ## Tournament, team, and match APIs
 
 - `GET /api/tournaments` and `GET /api/tournaments/:id` return public tournaments; admin sessions may also view drafts.
